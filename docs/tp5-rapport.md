@@ -80,7 +80,7 @@ contributeur modifie seul les workflows qui tournent sur main.
 *(à insérer : capture d'écran du commentaire "### Terraform Plan"
 généré par le job `plan` sur une PR réelle de votre dépôt)*
 
-`![Plan PR comment](./captures/plan-comment.png)`
+`![Plan PR comment](./captures/plan_comment.PNG)`
 
 ---
 
