@@ -92,9 +92,7 @@ de refus capturé) puis **positivement** (retour à la conformité →
 
 ## ⚠️ Limite assumée : pas de compte AWS réel
 
-Ce TP a été réalisé **sans compte AWS fourni**, et sans en créer un
-personnel payant. Le pipeline tourne donc contre **LocalStack** plutôt
-que contre un vrai compte :
+Ce TP a été réalisé sans compte AWS fourni, et sans en créer un à titre personnel et payant. Le pipeline tourne donc contre LocalStack plutôt que contre un vrai compte :
 
 - ✅ Tout ce qui ne dépend pas d'IAM réel (`fmt`, Gitleaks, Trivy,
   `terraform plan`, Conftest) a été testé de bout en bout, sur une
