@@ -20,7 +20,7 @@ resource "aws_security_group" "demo" {
   }
 
   tags = {
-    Environment = "dev"
+    Environment = "staging"
     Owner       = "equipe-cybersec"
     ManagedBy   = "terraform"
   }
@@ -41,7 +41,7 @@ resource "aws_instance" "demo" {
   }
 
   tags = {
-    Environment = "dev"
+    Environment = "staging"
     Owner       = "equipe-cybersec"
     ManagedBy   = "terraform"
     # ### VIOLATION règle 4 : commenter une ou plusieurs des 3 lignes
