@@ -1,0 +1,21 @@
+# Fichier de suppression Trivy — chaque entrée DOIT être justifiée.
+# Objectif : ne jamais faire taire un contrôle sans laisser de trace de
+# la décision. Voir docs/tp5-rapport.md, partie D, pour le détail des
+# risques résiduels assumés.
+
+# AVD-AWS-0107 : le security group de démo (terraform/examples/main.tf)
+# ouvre le port 443 (HTTPS) à 0.0.0.0/0. Accepté : un service web public
+# doit par nature accepter du trafic entrant depuis Internet sur ce port.
+# Le port sensible (SSH/22) reste, lui, strictement bloqué par
+# policies/securite.rego (règle 1), qui est le contrôle réellement
+# pertinent ici — Trivy n'a pas cette granularité port par port.
+AVD-AWS-0107
+
+# AVD-AWS-0057 : les rôles IAM gha-terraform-apply / gha-terraform-plan
+# (terraform/oidc.tf) utilisent encore des actions larges (ec2:*, s3:*,
+# ec2:Describe*, iam:Get*...) sur resources = ["*"]. Risque résiduel
+# documenté explicitement dans docs/tp5-rapport.md (CICD-SEC-4) : le
+# scope IAM devrait être resserré par ARN/tag avant tout usage en
+# production. Accepté pour le périmètre de ce TP, faute de temps pour
+# énumérer précisément chaque action et ressource nécessaire.
+AVD-AWS-0057
