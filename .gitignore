@@ -1,0 +1,10 @@
+# Terraform
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+tfplan.binary
+tfplan.json
+
+# Divers
+*.tar.gz
