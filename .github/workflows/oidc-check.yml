@@ -1,0 +1,26 @@
+name: OIDC sanity check
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: oidc-check-${{ github.ref }}
+
+jobs:
+  check-plan-role:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Configure AWS credentials (plan role)
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4.0.2
+        with:
+          role-to-assume: arn:aws:iam::ACCOUNT_ID:role/gha-terraform-plan
+          aws-region: eu-west-3
+
+      - name: Vérifier l'identité assumée
+        run: aws sts get-caller-identity
