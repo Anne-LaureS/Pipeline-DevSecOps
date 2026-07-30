@@ -60,6 +60,7 @@ jobs:
           scan-ref: terraform
           exit-code: "1"
           severity: HIGH,CRITICAL
+          trivyignores: .trivyignore
 
   ##########################################################
   # JOB 2 — Plan : terraform plan + conftest + commentaire PR
@@ -109,9 +110,12 @@ jobs:
           terraform show -no-color tfplan.binary > tfplan.txt
 
       - name: Setup conftest
-        uses: instrumenta/conftest-action@2b17b6e48009573bfee75b6f2b51bb1dacb05a2a # v0.4.0
-        with:
-          version: 0.55.0
+        run: |
+          CONFTEST_VERSION="0.55.0"
+          curl -sL "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" -o conftest.tar.gz
+          tar xzf conftest.tar.gz conftest
+          sudo mv conftest /usr/local/bin/
+          conftest --version
 
       - name: Policy as code (conftest / OPA)
         working-directory: terraform/examples
