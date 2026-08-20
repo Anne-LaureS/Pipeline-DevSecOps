@@ -29,6 +29,32 @@ configuration non conforme**.
 
 ---
 
+## 🔐 Conception IAM — pourquoi ce design
+
+Le cœur de ce pipeline n'est pas Terraform, c'est le modèle d'accès qui l'entoure. Détail dans
+`terraform/oidc.tf` et partie 1/5 du [rapport](docs/tp5-rapport.md) :
+
+- **Zéro credential permanent** : fédération OIDC GitHub Actions ↔ AWS. Aucune clé d'accès stockée
+  en secret GitHub — le job obtient un jeton STS valable 1h maximum, puis rien.
+- **Deux rôles, pas un** : `gha-terraform-plan` (lecture seule, 6 actions `Describe*`/`Get*`) et
+  `gha-terraform-apply` (écriture) sont des identités IAM distinctes. Une pull request ne peut
+  physiquement pas obtenir de droits d'écriture, même si son propre code de workflow était modifié
+  dans cette même PR.
+- **Confiance scopée par le contenu du jeton, pas juste sa provenance** : la trust policy de chaque
+  rôle vérifie le claim `sub` du jeton OIDC — `repo:<ORG>/<REPO>:pull_request` pour `plan`,
+  `repo:<ORG>/<REPO>:ref:refs/heads/main` pour `apply`. Résultat : ni un fork, ni une branche
+  quelconque, ni un `workflow_dispatch` hors `main` ne peut assumer le rôle d'écriture.
+- **Le test négatif fait partie du livrable, pas juste le résultat positif** : la partie 1 du
+  rapport documente ce qui se passerait si cette condition `sub` était élargie à `repo:<ORG>/<REPO>:*`
+  (n'importe quel contexte du dépôt pourrait assumer le rôle) — scénario d'attaque écrit noir sur
+  blanc, pas juste affirmé.
+- **Le risque résiduel est assumé, pas caché** : le rôle `apply` utilise encore `resources = ["*"]`
+  sur certaines actions faute d'avoir eu le temps de scoper par ARN — documenté explicitement comme
+  écart au principe de moindre privilège plutôt que passé sous silence (voir partie 5 du rapport,
+  dissertation Saltzer & Schroeder).
+
+---
+
 ## 📁 Structure du dépôt
 
 ```
