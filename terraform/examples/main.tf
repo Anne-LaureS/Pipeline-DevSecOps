@@ -37,7 +37,12 @@ resource "aws_instance" "demo" {
   }
 
   root_block_device {
-    encrypted = true # ### VIOLATION règle 3 : mettre "false" pour tester
+    # volume_size explicite : requis par l'émulation EC2 de LocalStack pour
+    # finaliser correctement le volume racine, sinon la relecture de
+    # l'instance après création échoue ("couldn't find resource" — bug connu
+    # LocalStack/localstack#6062, sans lien avec la conformité de sécurité).
+    volume_size = 8
+    encrypted   = true # ### VIOLATION règle 3 : mettre "false" pour tester
   }
 
   tags = {
