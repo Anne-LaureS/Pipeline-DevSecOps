@@ -77,6 +77,17 @@ Le cœur de ce pipeline n'est pas Terraform, c'est le modèle d'accès qui l'ent
 
 ---
 
+## 🎥 Démo live (sans compte AWS ni compte LocalStack)
+
+```bash
+./scripts/demo-local.sh          # lance LocalStack + apply, affiche les ressources créées
+./scripts/demo-local.sh cleanup  # détruit tout et arrête LocalStack
+```
+
+Utile pour montrer concrètement à quelqu'un que le pipeline crée de vraies ressources
+(Security Group + instance EC2, conformes aux 4 règles de sécurité), sans dépendre de
+l'onglet Actions de GitHub ni du Resource Browser LocalStack (qui nécessite un compte).
+
 ## 🚀 Tester en local
 
 ```bash

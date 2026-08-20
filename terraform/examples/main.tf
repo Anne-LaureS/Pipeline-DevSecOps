@@ -60,3 +60,13 @@ resource "aws_instance" "demo" {
     # ci-dessus (Environment / Owner / ManagedBy) pour tester
   }
 }
+
+# Sorties affichées en fin d'apply — utile pour la démo live (scripts/demo-local.sh),
+# aucun outil supplémentaire requis pour prouver que les ressources existent.
+output "instance_id" {
+  value = aws_instance.demo.id
+}
+
+output "security_group_id" {
+  value = aws_security_group.demo.id
+}
