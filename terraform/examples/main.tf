@@ -27,7 +27,10 @@ resource "aws_security_group" "demo" {
 }
 
 resource "aws_instance" "demo" {
-  ami           = "ami-0c55b159cbfafe1f0" # AMI factice, LocalStack ne vérifie pas son existence réelle
+  # Ubuntu 22.04 : une des 3 AMI pré-téléchargées par LocalStack au démarrage
+  # (les seules qu'il reconnaît en Community edition — un ID arbitraire fait
+  # échouer la relecture de l'instance après création, cf. commit précédent).
+  ami           = "ami-df5de72bdb3b"
   instance_type = "t3.micro"
 
   metadata_options {
