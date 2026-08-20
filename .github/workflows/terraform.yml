@@ -3,8 +3,14 @@ name: Terraform DevSecOps Pipeline
 on:
   pull_request:
     branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
   push:
     branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
 
 # Aucune permission par défaut : chaque job déclare explicitement
 # le strict nécessaire (principe du moindre privilège).
