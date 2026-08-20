@@ -124,12 +124,6 @@ masque pas les violations les unes derrière les autres.
 | CICD-SEC-9 | Exposition de secrets | 🟢 Non | Aucun secret AWS statique : uniquement OIDC + STS ; gitleaks bloquant sur chaque run | Gitleaks ne couvre que le contenu versionné, pas les logs de run (une variable mal loggée dans un `run:` resterait visible dans les logs Actions) — **risque résiduel assumé** |
 | CICD-SEC-10 | Journalisation et visibilité insuffisantes du pipeline | 🟡 Partiellement | Logs Actions natifs conservés par GitHub ; commentaire de plan traçable sur chaque PR | Aucune centralisation externe des logs (SIEM), aucune alerte automatique en cas d'échec bloquant répété — à ajouter pour un contexte de production réel |
 
-> 🎯 **Synthèse honnête :** trois risques résiduels explicitement
-> assumés faute de temps/périmètre du TP : l'absence de SCA sur les
-> dépendances applicatives (CICD-SEC-3), le scope encore trop large
-> (`*`) du rôle `apply` (CICD-SEC-4), et l'absence de commits signés
-> (CICD-SEC-7).
-
 > ⚙️ **Note d'exécution réelle :** lors du premier passage du job
 > `qualite` sur une vraie pull request, Trivy a effectivement bloqué le
 > pipeline sur deux constats — le port 443 ouvert à 0.0.0.0/0 (attendu
