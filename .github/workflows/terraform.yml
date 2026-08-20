@@ -87,7 +87,7 @@ jobs:
       pull-requests: write
     services:
       localstack:
-        image: localstack/localstack:3.7
+        image: localstack/localstack:4.4.0
         ports:
           - 4566:4566
         options: >-
@@ -170,7 +170,7 @@ jobs:
       contents: read
     services:
       localstack:
-        image: localstack/localstack:3.7
+        image: localstack/localstack:4.4.0
         ports:
           - 4566:4566
         options: >-
