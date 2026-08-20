@@ -27,10 +27,14 @@ resource "aws_security_group" "demo" {
 }
 
 resource "aws_instance" "demo" {
-  # Ubuntu 22.04 : une des 3 AMI pré-téléchargées par LocalStack au démarrage
-  # (les seules qu'il reconnaît en Community edition — un ID arbitraire fait
-  # échouer la relecture de l'instance après création, cf. commit précédent).
-  ami           = "ami-df5de72bdb3b"
+  # AMI réellement enregistrée dans le catalogue simulé (moto) de LocalStack
+  # Community — vérifié par appel direct à DescribeImages en local. Les AMI
+  # "pré-téléchargées" documentées par LocalStack (ami-df5de72bdb3b...)
+  # appartiennent au moteur EC2 "Docker" de la version Pro (vrais conteneurs
+  # taggés comme AMI) et n'existent pas ici : d'où l'échec précédent,
+  # confirmé en reproduisant l'apply en local contre le même LocalStack:4.4.0
+  # (log serveur : "ec2.DescribeImages => 400 InvalidAMIID.NotFound").
+  ami           = "ami-760aaa0f" # amzn-ami-hvm-2017.09.1.20171103-x86_64-gp2
   instance_type = "t3.micro"
 
   metadata_options {
