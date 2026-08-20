@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 540" role="img" aria-label="Deux événements GitHub Actions obtiennent chacun un jeton OIDC avec un sub différent ; l'IAM Provider AWS ne laisse ce sub assumer que le rôle correspondant — une pull request ne peut jamais atteindre le rôle d'écriture.">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#334155"/>
+    </marker>
+    <marker id="arrowRed" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#dc2626"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="960" height="540" fill="#ffffff"/>
+
+  <!-- Trigger: pull_request -->
+  <rect x="20" y="40" width="210" height="80" rx="8" fill="#eff6ff" stroke="#1d4ed8" stroke-width="1.5"/>
+  <text x="125" y="68" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="700" fill="#1e293b">Pull request</text>
+  <text x="125" y="86" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#475569">depuis n'importe quel</text>
+  <text x="125" y="101" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#475569">fork / branche</text>
+
+  <!-- Trigger: push main -->
+  <rect x="20" y="400" width="210" height="80" rx="8" fill="#eff6ff" stroke="#1d4ed8" stroke-width="1.5"/>
+  <text x="125" y="428" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="700" fill="#1e293b">Push sur main</text>
+  <text x="125" y="446" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#475569">après review +</text>
+  <text x="125" y="461" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#475569">merge de la PR</text>
+
+  <!-- OIDC provider hub -->
+  <rect x="370" y="220" width="240" height="100" rx="8" fill="#f8fafc" stroke="#334155" stroke-width="1.5"/>
+  <text x="490" y="248" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="700" fill="#1e293b">AWS IAM OIDC Provider</text>
+  <text x="490" y="266" text-anchor="middle" font-family="sans-serif" font-size="10.5" fill="#475569">token.actions.githubusercontent.com</text>
+  <text x="490" y="282" text-anchor="middle" font-family="sans-serif" font-size="10.5" fill="#475569">aud = sts.amazonaws.com</text>
+  <text x="490" y="300" text-anchor="middle" font-family="sans-serif" font-size="10.5" fill="#475569">vérifie le claim "sub" du jeton</text>
+
+  <!-- arrows triggers -> hub -->
+  <path d="M230,80 L340,220" fill="none" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="255" y="140" font-family="sans-serif" font-size="10.5" fill="#1e293b">jeton OIDC</text>
+  <text x="255" y="154" font-family="sans-serif" font-size="10.5" fill="#1e293b">sub: repo/…:pull_request</text>
+
+  <path d="M230,440 L340,320" fill="none" stroke="#334155" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="255" y="392" font-family="sans-serif" font-size="10.5" fill="#1e293b">jeton OIDC</text>
+  <text x="255" y="406" font-family="sans-serif" font-size="10.5" fill="#1e293b">sub: repo/…:ref:refs/heads/main</text>
+
+  <!-- Role: plan (read-only) -->
+  <rect x="700" y="20" width="240" height="140" rx="8" fill="#f0fdf4" stroke="#15803d" stroke-width="1.5"/>
+  <text x="820" y="46" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="700" fill="#14532d">gha-terraform-plan</text>
+  <text x="820" y="63" text-anchor="middle" font-family="sans-serif" font-size="10.5" fill="#166534">Lecture seule</text>
+  <text x="820" y="83" text-anchor="middle" font-family="sans-serif" font-size="10" fill="#365314">ec2:Describe* · iam:Get*/List*</text>
+  <text x="820" y="98" text-anchor="middle" font-family="sans-serif" font-size="10" fill="#365314">s3:Get*/List* · rds:Describe*</text>
+  <text x="820" y="113" text-anchor="middle" font-family="sans-serif" font-size="10" fill="#365314">sts:GetCallerIdentity</text>
+  <text x="820" y="135" text-anchor="middle" font-family="sans-serif" font-size="10.5" fill="#166534">session max 1h</text>
+
+  <!-- Role: apply (write) -->
+  <rect x="700" y="380" width="240" height="140" rx="8" fill="#fff7ed" stroke="#c2410c" stroke-width="1.5"/>
+  <text x="820" y="406" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="700" fill="#7c2d12">gha-terraform-apply</text>
+  <text x="820" y="423" text-anchor="middle" font-family="sans-serif" font-size="10.5" fill="#9a3412">Écriture</text>
+  <text x="820" y="443" text-anchor="middle" font-family="sans-serif" font-size="10" fill="#7c2d12">ec2:* · s3:*</text>
+  <text x="820" y="458" text-anchor="middle" font-family="sans-serif" font-size="10" fill="#7c2d12">rds:Create/Modify/Delete</text>
+  <text x="820" y="473" text-anchor="middle" font-family="sans-serif" font-size="10" fill="#7c2d12">iam:PassRole</text>
+  <text x="820" y="495" text-anchor="middle" font-family="sans-serif" font-size="10.5" fill="#9a3412">session max 1h</text>
+
+  <!-- arrows hub -> roles -->
+  <path d="M610,250 L700,90" fill="none" stroke="#15803d" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="618" y="185" font-family="sans-serif" font-size="10.5" fill="#166534">sub == pull_request ?</text>
+
+  <path d="M610,290 L700,450" fill="none" stroke="#c2410c" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="618" y="360" font-family="sans-serif" font-size="10.5" fill="#9a3412">sub == ref:main ?</text>
+
+  <!-- blocked path -->
+  <path d="M230,100 C 450,230 560,330 695,440" fill="none" stroke="#dc2626" stroke-width="1.5" stroke-dasharray="6 5" marker-end="url(#arrowRed)"/>
+  <text x="330" y="235" font-family="sans-serif" font-size="11" font-weight="700" fill="#dc2626">✗ sub ne correspond pas</text>
+  <text x="330" y="250" font-family="sans-serif" font-size="11" font-weight="700" fill="#dc2626">→ AssumeRole refusé</text>
+
+  <!-- AWS resources -->
+  <rect x="700" y="240" width="240" height="60" rx="8" fill="#f8fafc" stroke="#334155" stroke-width="1.5" stroke-dasharray="3 3"/>
+  <text x="820" y="266" text-anchor="middle" font-family="sans-serif" font-size="11" font-weight="700" fill="#1e293b">Ressources AWS</text>
+  <text x="820" y="282" text-anchor="middle" font-family="sans-serif" font-size="10" fill="#475569">EC2 · S3 · RDS</text>
+  <path d="M820,160 L820,240" fill="none" stroke="#15803d" stroke-width="1.2" marker-end="url(#arrow)"/>
+  <path d="M820,380 L820,300" fill="none" stroke="#c2410c" stroke-width="1.2" marker-end="url(#arrow)"/>
+</svg>

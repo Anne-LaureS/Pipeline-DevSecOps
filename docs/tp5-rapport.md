@@ -48,6 +48,12 @@ Rôle plan, lecture seule, restreint aux événements `pull_request` :
 values = ["repo:<ORG>/<REPO>:pull_request"]
 ```
 
+<figure>
+  <img src="oidc-architecture.svg" alt="Schéma : une pull request obtient un jeton OIDC avec sub=pull_request et ne peut assumer que le rôle de lecture ; un push sur main obtient sub=ref:refs/heads/main et peut seul assumer le rôle d'écriture. Le chemin PR vers le rôle d'écriture est explicitement refusé (sub ne correspond pas)." width="100%" />
+  <figcaption><i>Deux événements GitHub, deux conditions <code>sub</code> distinctes, deux rôles isolés — une PR ne peut
+  physiquement pas atteindre le rôle d'écriture, condition vérifiée par AWS lui-même à l'<code>AssumeRole</code>.</i></figcaption>
+</figure>
+
 ### 🧪 Test négatif (partie A, point 3)
 
 **Condition testée :** `repo:<ORG>/<REPO>:*`
