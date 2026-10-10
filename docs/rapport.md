@@ -176,7 +176,7 @@ refus volontaire du `sub` en `:*`.
 
 Tests unitaires (hors ligne) :
 
-![conftest verify — tous les tests unitaires passent](./captures/oidc-tests-unitaires.png)
+![conftest verify en CI — 90 tests, 90 passed](./captures/oidc-tests-unitaires.png)
 
 Trust policies conformes sur un vrai state (16 contrôles `oidc`, 13 pour la simulation) :
 

@@ -255,7 +255,7 @@ conftest verify --policy policies
 
 Résultat attendu : **90 tests unitaires**, 0 failure.
 
-![conftest verify — tous les tests unitaires passent](docs/captures/oidc-tests-unitaires.png)
+![conftest verify en CI — 90 tests, 90 passed](docs/captures/oidc-tests-unitaires.png)
 
 ### 2. Règles EC2 sur un plan
 
