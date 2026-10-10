@@ -16,7 +16,8 @@ qu'une configuration dangereuse est refusée avant d'arriver en production ?
 
 **La réponse de ce dépôt.**
 
-1. **Pas de secret permanent** : GitHub prouve son identité à AWS avec un jeton temporaire (OIDC).
+1. **Pas de secret permanent** : GitHub prouve l'identité du job à AWS avec un jeton signé de courte
+   durée (OIDC), que AWS échange contre des credentials temporaires.
 2. **Deux identités AWS distinctes** : l'une ne peut que *lire* (pour le `plan`), l'autre peut
    *écrire* (pour le `apply`) et n'est accessible qu'à un job passant par l'environment protégé
    `production`.
@@ -57,11 +58,13 @@ sécurité IAM (il accepte n'importe quel jeton, voir plus bas). La configuratio
 
 | Terme | En clair |
 |---|---|
-| **OIDC** | Protocole par lequel GitHub délivre à un job un **jeton signé** qui prouve « je suis tel dépôt, déclenché par tel événement ». AWS peut le vérifier sans qu'aucun secret n'ait été partagé à l'avance. |
-| **Rôle IAM** | Une identité AWS portant des permissions. On ne se connecte pas *en tant que* rôle : on l'**assume** temporairement. |
-| **Trust policy** | La règle attachée à un rôle qui dit **qui a le droit de l'assumer**. C'est elle qui décide si un jeton OIDC est accepté. |
-| **Claim `sub`** | Le champ du jeton qui dit *qui* demande : dépôt + contexte, ex. `repo:ORG/REPO:pull_request`. La trust policy le compare à un motif. |
-| **Claim `aud`** | L'audience du jeton : à qui il est destiné (`sts.amazonaws.com`). |
+| **OIDC (OpenID Connect)** | **Protocole d'authentification**, couche d'identité construite sur OAuth 2.0 : un **fournisseur d'identité** émet des **jetons signés** (JWT) décrivant une identité, que d'autres services (les *relying parties*) acceptent ou refusent. Ici, GitHub est le fournisseur d'identité et AWS la *relying party*. |
+| **Fédération GitHub → AWS** | Un job demande à GitHub un jeton décrivant ce job (dépôt, branche, événement, environment…) — il lui faut la permission `id-token: write` — puis l'échange auprès d'**AWS STS** (`AssumeRoleWithWebIdentity`) contre des credentials temporaires. AWS vérifie la signature avec les clés publiques publiées par GitHub, puis applique la trust policy du rôle. La confiance est posée **à l'avance**, en déclarant GitHub comme fournisseur OIDC dans IAM ; aucune clé d'accès n'est échangée. |
+| **Jeton (JWT) et claims** | Le jeton est un document signé dont les champs, les *claims*, portent l'émetteur (`iss`), l'audience (`aud`), le sujet (`sub`) et une expiration courte. |
+| **Rôle IAM** | Identité AWS **sans identifiants permanents**, définie par deux éléments : une *trust policy* (qui peut l'assumer) et des *policies de permissions* (ce qu'elle peut faire). Une identité autorisée l'**assume** via AWS STS et reçoit des credentials temporaires (clé d'accès, secret, session token) limités aux permissions du rôle, y compris une identité fédérée comme un job GitHub, qui n'a aucun compte IAM. |
+| **Trust policy** | La policy attachée à un rôle qui dit **qui peut l'assumer**, sous quelles conditions sur les claims du jeton. Elle ne donne **aucune permission** : celles-ci viennent des autres policies du rôle. |
+| **Claim `sub`** | Le claim qui dit *qui* demande : dépôt + contexte, ex. `repo:ORG/REPO:pull_request`. Les conditions de la trust policy (`StringEquals`, `StringLike`) le comparent à un motif. |
+| **Claim `aud`** | L'audience visée par le jeton. Pour AWS STS, elle doit valoir `sts.amazonaws.com`. |
 | **`plan` / `apply`** | `terraform plan` montre ce qui va changer (lecture) ; `terraform apply` le fait (écriture). |
 | **State** | Le fichier où Terraform note ce qu'il a réellement créé. |
 | **Policy as code (Rego / OPA / Conftest)** | Des règles de conformité écrites en code (Rego), évaluées par OPA via l'outil Conftest, qui refusent une configuration fautive. |
