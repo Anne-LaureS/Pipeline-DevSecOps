@@ -29,6 +29,8 @@ qu'une configuration dangereuse est refusée avant d'arriver en production ?
 3. **Des règles écrites en code** (*policy as code*) qui bloquent une configuration non conforme,
    y compris une identité trop permissive.
 
+Les termes techniques sont définis dans le [glossaire](docs/rapport.md#glossaire).
+
 **Pour comprendre le « pourquoi » et pas seulement le « comment »**, lisez le
 [rapport](docs/rapport.md), en particulier l'[évolution de conception du rôle `apply`](docs/rapport.md#evolution-sub-apply)
 et l'[audit OWASP](docs/rapport.md#partie-4).
@@ -50,17 +52,19 @@ sécurité IAM (il accepte n'importe quel jeton, voir plus bas). La configuratio
 ## 📑 Sommaire
 
 0. [**Le rapport**](#-le-rapport) — démarche, preuves, audit, décisions
-1. [Glossaire](#-glossaire)
-2. [Prérequis](#-prérequis)
-3. [Ce que fait ce pipeline](#-ce-que-fait-ce-pipeline)
-4. [Conception IAM](#-conception-iam--pourquoi-ce-design)
-5. [Structure du dépôt](#-structure-du-dépôt)
-6. [Démo live](#-démo-live-sans-compte-aws)
-7. [Tester pas à pas](#-tester-pas-à-pas)
-8. [Les règles de sécurité EC2](#-les-4-règles-de-sécurité-sur-le-plan)
-9. [Les règles sur les trust policies OIDC](#-les-5-règles-sur-les-trust-policies-oidc)
-10. [Ce que LocalStack n'applique pas, et la simulation](#-ce-que-localstack-napplique-pas--et-la-simulation)
-11. [Limites et risques assumés](#️-limites-et-risques-assumés)
+1. [Prérequis](#-prérequis)
+2. [Ce que fait ce pipeline](#-ce-que-fait-ce-pipeline)
+3. [Conception IAM](#-conception-iam--pourquoi-ce-design)
+4. [Structure du dépôt](#-structure-du-dépôt)
+5. [Démo live](#-démo-live-sans-compte-aws)
+6. [Tester pas à pas](#-tester-pas-à-pas)
+7. [Les règles de sécurité EC2](#-les-règles-de-sécurité-sur-le-plan)
+8. [Les règles sur les rôles OIDC](#-les-règles-sur-les-rôles-oidc-trust-policies-et-permissions)
+9. [Ce que LocalStack n'applique pas, et la simulation](#-ce-que-localstack-napplique-pas--et-la-simulation)
+10. [Limites et risques assumés](#️-limites-et-risques-assumés)
+
+> 📖 Un terme vous échappe (OIDC, trust policy, claim `sub`, state…) ? Voir le
+> [glossaire du rapport](docs/rapport.md#glossaire).
 
 ---
 
@@ -71,6 +75,7 @@ fait ainsi, avec les preuves.
 
 | Partie | Ce que vous y trouvez |
 |---|---|
+| [Glossaire](docs/rapport.md#glossaire) | OIDC, rôle IAM, trust policy, claims, state, policy as code, LocalStack |
 | [0 — Note méthodologique](docs/rapport.md#partie-0) | Pourquoi LocalStack, et ce que cela implique pour la confiance accordée aux résultats |
 | [1 — Politique OIDC](docs/rapport.md#partie-1) | Les conditions `sub` finales, le schéma d'architecture, le test négatif (scénario d'attaque détaillé) |
 | [1 — Évolution de conception](docs/rapport.md#evolution-sub-apply) | Pourquoi le `sub` du rôle `apply` vise l'environment et non `main`, et comment l'erreur a été trouvée |
@@ -82,24 +87,6 @@ fait ainsi, avec les preuves.
 
 > 💡 **Le README dit ce que fait le dépôt et comment le rejouer ; le rapport dit pourquoi, ce qui a
 > été corrigé en route, et ce qui n'est pas prouvé.**
-
----
-
-## 📖 Glossaire
-
-| Terme | En clair |
-|---|---|
-| **OIDC (OpenID Connect)** | **Protocole d'authentification**, couche d'identité construite sur OAuth 2.0 : un **fournisseur d'identité** émet des **jetons signés** (JWT) décrivant une identité, que d'autres services (les *relying parties*) acceptent ou refusent. Ici, GitHub est le fournisseur d'identité et AWS la *relying party*. |
-| **Fédération GitHub → AWS** | Un job demande à GitHub un jeton décrivant ce job (dépôt, branche, événement, environment…) — il lui faut la permission `id-token: write` — puis l'échange auprès d'**AWS STS** (`AssumeRoleWithWebIdentity`) contre des credentials temporaires. AWS vérifie la signature avec les clés publiques publiées par GitHub, puis applique la trust policy du rôle. La confiance est posée **à l'avance**, en déclarant GitHub comme fournisseur OIDC dans IAM ; aucune clé d'accès n'est échangée. |
-| **Jeton (JWT) et claims** | Le jeton est un document signé dont les champs, les *claims*, portent l'émetteur (`iss`), l'audience (`aud`), le sujet (`sub`) et une expiration courte. |
-| **Rôle IAM** | Identité AWS **sans identifiants permanents**, définie par deux éléments : une *trust policy* (qui peut l'assumer) et des *policies de permissions* (ce qu'elle peut faire). Une identité autorisée l'**assume** via AWS STS et reçoit des credentials temporaires (clé d'accès, secret, session token) limités aux permissions du rôle, y compris une identité fédérée comme un job GitHub, qui n'a aucun compte IAM. |
-| **Trust policy** | La policy attachée à un rôle qui dit **qui peut l'assumer**, sous quelles conditions sur les claims du jeton. Elle ne donne **aucune permission** : celles-ci viennent des autres policies du rôle. |
-| **Claim `sub`** | Le claim qui dit *qui* demande : dépôt + contexte, ex. `repo:ORG/REPO:pull_request`. Les conditions de la trust policy (`StringEquals`, `StringLike`) le comparent à un motif. |
-| **Claim `aud`** | L'audience visée par le jeton. Pour AWS STS, elle doit valoir `sts.amazonaws.com`. |
-| **`plan` / `apply`** | `terraform plan` montre ce qui va changer (lecture) ; `terraform apply` le fait (écriture). |
-| **State** | Le fichier où Terraform note ce qu'il a réellement créé. |
-| **Policy as code (Rego / OPA / Conftest)** | Des règles de conformité écrites en code (Rego), évaluées par OPA via l'outil Conftest, qui refusent une configuration fautive. |
-| **LocalStack** | Un émulateur local de l'API AWS (via Docker). Gratuit, sans compte, mais il n'applique pas les contrôles de sécurité IAM. |
 
 ---
 
@@ -196,6 +183,7 @@ Le cœur de ce pipeline n'est pas Terraform, c'est le modèle d'accès qui l'ent
 │   └── examples/            # Ressources de démo testées contre LocalStack
 ├── policies/
 │   ├── securite.rego        # 4 règles de sécurité sur le plan (Conftest/OPA)
+│   ├── securite_test.rego   # tests unitaires de ces règles, un par contournement connu
 │   ├── oidc.rego            # règles sur les trust policies et les permissions (lues dans le state)
 │   ├── oidc_test.rego       # tests unitaires de ces règles, un par contournement connu (hors ligne)
 │   ├── oidc_simulation.rego # simulation de la décision AssumeRoleWithWebIdentity (10 jetons)
@@ -249,7 +237,7 @@ conftest verify --policy policies
 
 Résultat attendu :
 
-![conftest verify — 59 tests, 59 passed](docs/captures/oidc-tests-unitaires.png)
+![conftest verify — tous les tests unitaires passent](docs/captures/oidc-tests-unitaires.png)
 
 ### 2. Règles EC2 sur un plan
 
@@ -265,7 +253,7 @@ cd ../..
 
 Résultat attendu :
 
-![conftest sur la config EC2 — 8 tests, 8 passed](docs/captures/conftest-ec2-conforme.png)
+![conftest sur la config EC2 — 0 failures](docs/captures/conftest-ec2-conforme.png)
 
 ### 3. Trust policies OIDC sur un state, avec refus volontaire
 
@@ -298,18 +286,28 @@ Résultat attendu sur la violation volontaire :
 
 ---
 
-## 🔒 Les 4 règles de sécurité sur le plan
+## 🔒 Les règles de sécurité sur le plan
 
 | # | Règle | Détecte |
 |---|---|---|
-| 1️⃣ | 🚫 Pas de SSH ouvert | `0.0.0.0/0` sur le port 22 |
-| 2️⃣ | 🔐 IMDSv2 obligatoire | `http_tokens != "required"` |
-| 3️⃣ | 💾 Chiffrement disque | `encrypted != true` |
-| 4️⃣ | 🏷️ Tags obligatoires | `Environment`, `Owner`, `ManagedBy` manquants |
+| 1️⃣ | 🚫 Pas de SSH ouvert à Internet | port 22 (ou plage l'incluant, ou **tout le trafic** `-1`) ouvert à `0.0.0.0/0` **ou** `::/0`, sur `aws_security_group`, `aws_security_group_rule` et `aws_vpc_security_group_ingress_rule` |
+| 2️⃣ | 🔐 IMDSv2 obligatoire | `http_tokens` ≠ `"required"`, **absent ou inconnu au plan**, ou bloc `metadata_options` manquant |
+| 3️⃣ | 💾 Chiffrement des disques | `encrypted` ≠ `true`, **absent ou inconnu**, ou instance **sans** `root_block_device` ; vaut aussi pour `ebs_block_device` et `aws_ebs_volume` |
+| 4️⃣ | 🏷️ Tags obligatoires | `Environment`, `Owner`, `ManagedBy` manquants, ou aucun tag |
 
-Chacune a été testée **négativement** (violation volontaire → message de refus capturé) puis
-**positivement** (retour à la conformité → `8/8 passed`). Détail dans le
-[rapport](docs/rapport.md).
+**Principe : ce qui n'est pas vérifiable est refusé.** Terraform omet du plan les valeurs calculées à
+l'apply : une règle qui compare une valeur absente ne se déclenche jamais. Ces règles échouent donc
+quand la valeur est inconnue plutôt que de la prendre pour conforme.
+
+**Vocabulaire.** Une *règle* est un contrôle de sécurité nommé (la table ci-dessus). Conftest compte
+des *contrôles* : un bloc `deny` par cas détecté, donc plusieurs par règle. Un *test unitaire* est un
+`test_*` Rego rejoué hors ligne par `conftest verify`. C'est pourquoi 4 règles produisent plus de
+contrôles et que les tests unitaires sont plus nombreux encore.
+
+Chaque règle est testée **négativement** puis **positivement**, à deux niveaux : sur un plan réel
+(violation volontaire, message de refus capturé) et par des tests unitaires
+([`securite_test.rego`](policies/securite_test.rego)), un par contournement connu. Détail dans le
+[rapport](docs/rapport.md#partie-3).
 
 ---
 
