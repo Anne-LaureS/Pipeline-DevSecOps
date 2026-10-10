@@ -2,12 +2,13 @@
 # Démo live du pipeline, sans compte AWS ni compte LocalStack.
 #
 # Lance LocalStack en local, applique la configuration Terraform de
-# démonstration contre lui, puis affiche les ressources créées — de quoi
-# montrer à quelqu'un, en direct, que le pipeline fonctionne réellement,
-# sans dépendre de l'onglet Actions de GitHub ni d'un service tiers.
+# démonstration contre lui, puis enchaîne les contrôles : règles EC2
+# (conftest), trust policies et permissions OIDC, simulation de la décision
+# d'AWS, et un refus volontaire. Un récapitulatif final dit, contrôle par
+# contrôle, si le résultat est celui attendu.
 #
 # Utilisation :
-#   ./scripts/demo-local.sh          # lance la démo (apply)
+#   ./scripts/demo-local.sh          # lance la démo (apply + contrôles)
 #   ./scripts/demo-local.sh cleanup  # détruit les ressources et arrête LocalStack
 
 set -euo pipefail
@@ -21,6 +22,48 @@ if [ "${1:-}" = "cleanup" ]; then
   echo "✅ Terminé — LocalStack arrêté, ressources détruites."
   exit 0
 fi
+
+# --- Prérequis : échouer clairement plutôt que dérouler une démo tronquée ---
+MISSING=0
+need() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    echo "❌ '$1' est requis : $2" >&2
+    MISSING=1
+  fi
+}
+need docker "installer Docker avec Compose (README, section Prérequis)"
+need terraform "installer Terraform >= 1.9 ; installé via snap : export PATH=\"\$PATH:/snap/bin\""
+need conftest "installer Conftest >= 0.55 (README, section Prérequis)"
+need curl "installer curl"
+if [ "$MISSING" -ne 0 ]; then
+  echo "La démo exécute les contrôles OIDC : sans ces outils elle serait incomplète." >&2
+  exit 1
+fi
+
+# --- Suivi des résultats (un fichier : les sous-shells y écrivent aussi) ---
+RESULTS="$(mktemp)"
+OIDC_DIR=""
+trap 'rm -f "$RESULTS"; [ -n "$OIDC_DIR" ] && rm -rf "$OIDC_DIR"; true' EXIT
+
+# Contrôle qui DOIT réussir : 0 violation attendue.
+check_pass() {
+  local label="$1"; shift
+  if "$@"; then
+    echo "✅ $label" >> "$RESULTS"
+  else
+    echo "❌ $label — violations inattendues" >> "$RESULTS"
+  fi
+}
+
+# Contrôle qui DOIT échouer : le refus est le résultat attendu.
+check_refus() {
+  local label="$1"; shift
+  if "$@"; then
+    echo "❌ $label — aurait dû être refusé" >> "$RESULTS"
+  else
+    echo "✅ $label (refus attendu)" >> "$RESULTS"
+  fi
+}
 
 echo "🚀 Démarrage de LocalStack (aucun compte requis, 100% local)..."
 docker compose up -d
@@ -65,51 +108,58 @@ else
   echo "   supplémentaire interrogé en direct."
 fi
 
-if command -v conftest >/dev/null 2>&1; then
-  echo ""
-  echo "🛡️  Contrôle des règles de sécurité (conftest) sur la config EC2 :"
-  terraform plan -input=false -out=tfplan.binary >/dev/null
-  terraform show -json tfplan.binary > tfplan.json
+echo ""
+echo "🛡️  Contrôle des règles de sécurité (conftest) sur la config EC2 :"
+terraform plan -input=false -out=tfplan.binary >/dev/null
+terraform show -json tfplan.binary > tfplan.json
+check_pass "Règles EC2 (SSH, IMDSv2, chiffrement, tags) sur le plan" \
   conftest test tfplan.json --policy "$ROOT/policies"
 
-  echo ""
-  echo "🔑 Partie OIDC : rôles GitHub Actions -> AWS (trust policies)"
-  OIDC_DIR="$(mktemp -d)"
-  trap 'rm -rf "$OIDC_DIR"' EXIT
-  cp "$ROOT/terraform/oidc.tf" "$ROOT/terraform/examples/provider.tf" "$OIDC_DIR/"
-  (
-    cd "$OIDC_DIR"
-    terraform init -input=false >/dev/null
-    terraform apply -input=false -auto-approve >/dev/null
-    terraform show -json > state.json
-    # Dépôt attendu fourni séparément (valeur par défaut des variables de oidc.tf)
-    mkdir expected && echo '{"expected_repo":"VOTRE_ORG/VOTRE_REPO"}' > expected/expected.json
+echo ""
+echo "🔑 Partie OIDC : rôles GitHub Actions -> AWS (trust policies et permissions)"
+OIDC_DIR="$(mktemp -d)"
+cp "$ROOT/terraform/oidc.tf" "$ROOT/terraform/examples/provider.tf" "$OIDC_DIR/"
+(
+  cd "$OIDC_DIR"
+  terraform init -input=false >/dev/null
+  terraform apply -input=false -auto-approve >/dev/null
+  terraform show -json > state.json
+  # Dépôt attendu fourni séparément (valeur par défaut des variables de oidc.tf)
+  mkdir expected && echo '{"expected_repo":"VOTRE_ORG/VOTRE_REPO"}' > expected/expected.json
 
-    echo ""
-    echo "✅ Trust policies et permissions conformes (sub strict, aud exact, moindre privilège EC2) :"
+  echo ""
+  echo "✅ Trust policies et permissions (sub strict, aud exact, moindre privilège EC2) :"
+  check_pass "Règles OIDC : trust policies et permissions conformes" \
     conftest test state.json --policy "$ROOT/policies" --namespace oidc --data expected
 
-    echo ""
-    echo "🧪 Simulation de la décision AWS (10 jetons fictifs : PR, environment, fork, mauvaise audience...)"
+  echo ""
+  echo "🧪 Simulation de la décision AWS (10 jetons fictifs : PR, environment, fork, mauvaise audience...)"
+  check_pass "Simulation : chaque jeton est accepté ou refusé comme prévu" \
     conftest test state.json --policy "$ROOT/policies" --namespace oidc_sim --data expected
 
-    echo ""
-    echo "🚨 Refus volontaire : on remplace ':pull_request' par ':*' (le cas du test négatif)"
-    sed 's/:pull_request/:*/g' state.json > state_bad.json
-    conftest test state_bad.json --policy "$ROOT/policies" --namespace oidc --data expected || \
-      echo "👉 Refus attendu : une trust policy trop large est bloquée avant d'atteindre AWS."
-
-    echo ""
-    echo "🧪 Même state, vu par la simulation : que pourrait assumer un attaquant ?"
-    conftest test state_bad.json --policy "$ROOT/policies" --namespace oidc_sim --data expected || \
-      echo "👉 Avec le joker, un job hors pull_request (ex. push sur main) assumerait le rôle plan."
-
-    terraform destroy -input=false -auto-approve >/dev/null
-  )
-else
   echo ""
-  echo "ℹ️  conftest non installé — le contrôle des règles et la démo OIDC sont ignorés."
-fi
+  echo "🚨 Refus volontaire : on remplace ':pull_request' par ':*' (le cas du test négatif)"
+  sed 's/:pull_request/:*/g' state.json > state_bad.json
+  check_refus "Règles OIDC : sub élargi à ':*' bloqué" \
+    conftest test state_bad.json --policy "$ROOT/policies" --namespace oidc --data expected
+
+  echo ""
+  echo "🧪 Même state, vu par la simulation : que pourrait assumer un attaquant ?"
+  check_refus "Simulation : le sub élargi laisserait un push sur main assumer le rôle plan" \
+    conftest test state_bad.json --policy "$ROOT/policies" --namespace oidc_sim --data expected
+
+  terraform destroy -input=false -auto-approve >/dev/null
+)
 
 echo ""
+echo "📋 Récapitulatif des contrôles"
+cat "$RESULTS"
+if grep -q '^❌' "$RESULTS"; then
+  echo ""
+  echo "❌ Au moins un contrôle n'a pas le résultat attendu."
+  echo "💡 Pour tout nettoyer : ./scripts/demo-local.sh cleanup"
+  exit 1
+fi
+echo ""
+echo "✅ Tous les contrôles ont le résultat attendu (un refus volontaire compte comme réussi)."
 echo "💡 Pour tout nettoyer ensuite : ./scripts/demo-local.sh cleanup"
