@@ -1,7 +1,9 @@
 name: OIDC sanity check
 
+# Déclenchement manuel uniquement : ce contrôle exige un vrai compte AWS
+# (provider OIDC + rôle gha-terraform-plan déployés, ACCOUNT_ID renseigné).
+# Sans compte, il échoue systématiquement : voir la limite assumée du README.
 on:
-  pull_request:
   workflow_dispatch:
 
 permissions: {}
