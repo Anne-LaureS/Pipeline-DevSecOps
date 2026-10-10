@@ -38,13 +38,15 @@ et l'[audit OWASP](docs/rapport.md#partie-4).
 **Ce qui est réel et ce qui ne l'est pas.** Il n'y a pas de compte AWS derrière ce projet : tout
 tourne contre **LocalStack**, un AWS émulé en local. LocalStack n'applique pas les conditions de
 sécurité IAM (il accepte n'importe quel jeton, voir plus bas). La configuration OIDC est donc
-**écrite, vérifiée statiquement et simulée, mais jamais exercée sur un vrai AWS**.
+**écrite, vérifiée statiquement, simulée et recoupée par un second moteur (OpenBao, avec de vrais
+jetons GitHub), mais jamais exercée sur un vrai AWS**.
 
 | | Statut |
 |---|---|
 | `fmt`, Gitleaks, Trivy, `terraform plan`, règles EC2 | ✅ testés de bout en bout, sur une vraie pull request |
 | Règles sur les trust policies OIDC | ✅ vérifiées sur le state, tests unitaires, CI |
-| Décision d'AWS (qui peut assumer quel rôle) | 🟡 **simulée**, pas observée |
+| Jetons GitHub réels : signature, audience, `sub` | ✅ vérifiés en CI par un tiers (OpenBao), voir [section dédiée](#-second-moteur--test-différentiel-avec-openbao) |
+| Décision d'AWS (qui peut assumer quel rôle) | 🟡 **simulée et recoupée par un second moteur**, pas observée |
 | `AssumeRoleWithWebIdentity` réel | ❌ jamais exercé (pas de compte AWS) |
 
 ---
@@ -61,7 +63,8 @@ sécurité IAM (il accepte n'importe quel jeton, voir plus bas). La configuratio
 7. [Les règles de sécurité EC2](#-les-règles-de-sécurité-sur-le-plan)
 8. [Les règles sur les rôles OIDC](#-les-règles-sur-les-rôles-oidc-trust-policies-et-permissions)
 9. [Ce que LocalStack n'applique pas, et la simulation](#-ce-que-localstack-napplique-pas--et-la-simulation)
-10. [Limites et risques assumés](#limites)
+10. [Second moteur : test différentiel avec OpenBao](#-second-moteur--test-différentiel-avec-openbao)
+11. [Limites et risques assumés](#limites)
 
 > 📖 Un terme vous échappe (OIDC, trust policy, claim `sub`, state…) ? Voir le
 > [glossaire du rapport](docs/rapport.md#glossaire).
@@ -151,6 +154,14 @@ Le cœur de ce pipeline n'est pas Terraform, c'est le modèle d'accès qui l'ent
   | `gha-terraform-plan` | `repo:<ORG>/<REPO>:pull_request` | une PR de ce dépôt, lecture seule |
   | `gha-terraform-apply` | `repo:<ORG>/<REPO>:environment:production` | un job de ce dépôt déclarant `environment: production` |
 
+  **Format réel du `sub`.** Pour les dépôts qui l'activent (`use_immutable_subject`, c'est le cas
+  ici), GitHub émet `repo:<ORG>@<ID>/<REPO>@<ID>:...` avec les identifiants numériques du propriétaire
+  et du dépôt. La trust policy doit reprendre **exactement** cette forme, sinon AWS refuse vos propres
+  jobs : `oidc.tf` l'obtient avec `github_org_id` et `github_repo_id`. C'est aussi plus sûr : un
+  dépôt renommé ou recréé par un tiers sous le même nom n'obtient pas le même `sub`. Cette erreur a
+  été révélée par le premier run avec de vrais jetons (voir
+  [le rapport](docs/rapport.md#second-moteur)).
+
   La comparaison se fait en **`StringEquals`** (valeur exacte) et non en `StringLike` : aucun joker
   n'est voulu, et un `*` ajouté plus tard resterait un caractère littéral au lieu d'élargir la
   confiance en silence. La règle 2 bis refuse tout opérateur à motif sur le `sub`.
@@ -192,15 +203,17 @@ Le cœur de ce pipeline n'est pas Terraform, c'est le modèle d'accès qui l'ent
 │   ├── oidc.rego            # règles sur les trust policies et les permissions (lues dans le state)
 │   ├── oidc_test.rego       # tests unitaires de ces règles, un par contournement connu (hors ligne)
 │   ├── oidc_simulation.rego # simulation de la décision AssumeRoleWithWebIdentity (10 jetons)
-│   └── oidc_simulation_test.rego  # tests du moteur de simulation
+│   ├── oidc_simulation_test.rego  # tests du moteur de simulation
+│   └── oidc_probe.rego      # sorties lues par le test différentiel (sans effet sur les autres namespaces)
 ├── docs/
 │   ├── rapport.md       # Rapport : démarche, preuves, audit, décisions
 │   ├── oidc-architecture.svg
 │   └── captures/            # Preuves visuelles
 ├── scripts/
-│   └── demo-local.sh        # Démo locale : LocalStack + apply + contrôles (option : cleanup)
+│   ├── demo-local.sh        # Démo locale : LocalStack + apply + contrôles (option : cleanup)
+│   └── openbao-oidc-check.sh # Test différentiel OpenBao / simulation Rego (--local, --github)
 ├── .trivyignore             # Risques acceptés, justifiés et tracés
-├── docker-compose.yml       # LocalStack pour tester en local
+├── docker-compose.yml       # LocalStack (+ OpenBao sous le profil « openbao »)
 └── .gitignore
 ```
 
@@ -240,9 +253,9 @@ Tout se lance depuis la racine du dépôt.
 conftest verify --policy policies
 ```
 
-Résultat attendu : **87 tests unitaires**, 0 failure.
+Résultat attendu : **90 tests unitaires**, 0 failure.
 
-![conftest verify — 87 tests, 87 passed](docs/captures/oidc-tests-unitaires.png)
+![conftest verify — tous les tests unitaires passent](docs/captures/oidc-tests-unitaires.png)
 
 ### 2. Règles EC2 sur un plan
 
@@ -442,6 +455,52 @@ Les règles de la section précédente contrôlent la *forme* des policies ; la 
 
 ---
 
+## 🔁 Second moteur : test différentiel avec OpenBao
+
+La simulation Rego est écrite par la même personne que les règles : elle peut partager leurs
+angles morts. On la recoupe donc avec un **second moteur indépendant**, [OpenBao](https://openbao.org)
+(fork open source de HashiCorp Vault), dont la méthode d'authentification `jwt` vérifie la signature
+d'un jeton OIDC et compare ses claims à des valeurs liées.
+
+```
+state Terraform ──► rôles OpenBao (sub, aud repris de oidc.tf)
+                         │
+mêmes jetons ───────────►├──► décision d'OpenBao   ┐
+                         │                          ├─ comparaison : tout désaccord = un bug
+                         └──► décision de la        ┘
+                              simulation Rego
+```
+
+| Mode | Jetons | Ce qu'il apporte |
+|---|---|---|
+| `--local` | les scénarios de la simulation, signés avec une clé de test | autre dépôt, `main`, mauvais environment, mauvaise audience : cas qu'un CI ne peut pas produire seul |
+| `--github` (en CI) | le **vrai** jeton du job, signature vérifiée via le JWKS de GitHub | prouve que l'émetteur, l'audience et le `sub` réels correspondent à `oidc.tf` |
+
+En mode `--github`, une vérification d'**intention** s'ajoute, indépendante des deux moteurs : sur
+une pull request, le jeton légitime doit être accepté par le rôle `plan` et refusé par `apply`. Sans
+elle, deux moteurs qui refusent tout seraient « d'accord ».
+
+**Ce que cela a déjà révélé.** Au premier run avec de vrais jetons, le job était vert alors que le
+jeton légitime était refusé par les deux moteurs : le `sub` émis contenait des identifiants
+numériques absents de `oidc.tf`. Corrigé (voir ci-dessus), et la vérification d'intention a été
+ajoutée pour que cela ne puisse plus passer inaperçu.
+
+```bash
+docker compose --profile openbao up -d openbao      # OpenBao en mode dev, local uniquement
+EXPECTED_REPO="VOTRE_ORG/VOTRE_REPO" scripts/openbao-oidc-check.sh state.json --local
+docker compose --profile openbao down
+```
+
+> ⚠️ **Ce que ce recoupement ne prouve pas.**
+> - OpenBao compare des **valeurs exactes** : ce n'est pas la sémantique de `StringLike` d'AWS. Le
+>   script n'accepte donc que des conditions `StringEquals`, où les deux sont équivalentes. On
+>   valide la logique des claims, pas l'évaluateur d'AWS.
+> - Il ne modélise ni les `Deny` explicites, ni les opérateurs de condition, ni les SCP.
+> - La limite « jamais exercé sur un vrai AWS » reste vraie. La formulation exacte est :
+>   **simulé et recoupé par un second moteur**.
+
+---
+
 <a id="limites"></a>
 ## ⚠️ Limites et risques assumés
 
@@ -450,9 +509,10 @@ tout coût.
 
 - ✅ `fmt`, Gitleaks, Trivy, `terraform plan`, Conftest : testés de bout en bout sur une vraie pull
   request GitHub.
-- ⚠️ La logique OIDC n'a **jamais été exercée en conditions réelles**. Elle est vérifiée
-  statiquement et simulée : cela prouve que les conditions sont bien posées, pas qu'AWS les applique.
-- ⚠️ Le CI n'utilise pas l'OIDC : le job `plan` tourne contre LocalStack. Le workflow
+- ⚠️ La logique OIDC n'a **jamais été exercée sur un vrai AWS**. Elle est vérifiée statiquement,
+  simulée, et recoupée par un second moteur (OpenBao) avec de vrais jetons GitHub : cela prouve que les
+  conditions sont bien posées et que la logique des claims est cohérente, pas qu'AWS les applique.
+- ⚠️ Le CI n'utilise pas l'OIDC pour parler à AWS : le job `plan` tourne contre LocalStack. Le workflow
   [`oidc-check.yml`](.github/workflows/oidc-check.yml), à lancer à la main, est prévu pour un vrai
   compte (il échoue tant que `ACCOUNT_ID` n'est pas renseigné).
 
