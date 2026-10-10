@@ -177,11 +177,11 @@ refus volontaire du `sub` en `:*`.
 
 Tests unitaires (hors ligne) :
 
-![conftest verify en CI — tous les tests unitaires passent](./captures/oidc-tests-unitaires.png)
+![conftest verify — 93 tests, 93 passed](./captures/oidc-tests-unitaires.png)
 
 Trust policies conformes sur un vrai state (17 contrôles `oidc`, 13 pour la simulation) :
 
-![Trust policies conformes — 0 failures](./captures/oidc-state-conforme.png)
+![Trust policies conformes — 17 tests, 17 passed](./captures/oidc-state-conforme.png)
 
 Refus volontaire : opérateur basculé en `StringLike` et `sub` élargi à `:*` (4 violations : joker,
 `StringLike` sur les deux rôles, suffixe attendu absent) :
