@@ -61,7 +61,7 @@ sécurité IAM (il accepte n'importe quel jeton, voir plus bas). La configuratio
 7. [Les règles de sécurité EC2](#-les-règles-de-sécurité-sur-le-plan)
 8. [Les règles sur les rôles OIDC](#-les-règles-sur-les-rôles-oidc-trust-policies-et-permissions)
 9. [Ce que LocalStack n'applique pas, et la simulation](#-ce-que-localstack-napplique-pas--et-la-simulation)
-10. [Limites et risques assumés](#️-limites-et-risques-assumés)
+10. [Limites et risques assumés](#limites)
 
 > 📖 Un terme vous échappe (OIDC, trust policy, claim `sub`, state…) ? Voir le
 > [glossaire du rapport](docs/rapport.md#glossaire).
@@ -151,6 +151,10 @@ Le cœur de ce pipeline n'est pas Terraform, c'est le modèle d'accès qui l'ent
   | `gha-terraform-plan` | `repo:<ORG>/<REPO>:pull_request` | une PR de ce dépôt, lecture seule |
   | `gha-terraform-apply` | `repo:<ORG>/<REPO>:environment:production` | un job de ce dépôt déclarant `environment: production` |
 
+  La comparaison se fait en **`StringEquals`** (valeur exacte) et non en `StringLike` : aucun joker
+  n'est voulu, et un `*` ajouté plus tard resterait un caractère littéral au lieu d'élargir la
+  confiance en silence. La règle 2 bis refuse tout opérateur à motif sur le `sub`.
+
 - **Pourquoi l'environment pour `apply` et non la branche `main`** : dès qu'un job déclare
   `environment:`, GitHub remplace le `sub` par `…:environment:<nom>` (le ref n'y figure plus). Une
   condition sur `ref:refs/heads/main` aurait donc **refusé** le job `apply`. La première
@@ -159,13 +163,14 @@ Le cœur de ce pipeline n'est pas Terraform, c'est le modèle d'accès qui l'ent
   Environments → production*) avec des **reviewers obligatoires** et des **Deployment branches
   limitées à `main`** : sans cela, n'importe quelle branche pourrait cibler cet environment.
   Cette configuration est en place sur ce dépôt (reviewer obligatoire, branches limitées à `main`,
-  administrateurs non exemptés), et `main` n'accepte que des pull requests (ruleset `protect-main`).
+  administrateurs non exemptés), et `main` n'accepte que des pull requests (ruleset `protect-main` : PR obligatoire, checks `qualite`
+  et `plan` requis, branche à jour avant merge).
   Ces réglages vivent dans GitHub et non dans le dépôt : ils sont à reproduire sur un fork.
 - **Le test négatif fait partie de la démarche** : le [rapport](docs/rapport.md) documente ce qui se
   passerait si la condition `sub` était élargie à `repo:<ORG>/<REPO>:*` (n'importe quel contexte du
   dépôt pourrait assumer le rôle) ; ce scénario est désormais rejoué automatiquement par les règles
   et la simulation.
-- **Les risques résiduels sont assumés** (détail dans [Limites](#️-limites-et-risques-assumés)) :
+- **Les risques résiduels sont assumés** (détail dans [Limites](#limites)) :
   permissions limitées à EC2 et à une région, écritures sur les seules ressources étiquetées
   `ManagedBy=terraform` (règles 6 à 10 contre toute régression).
 
@@ -235,9 +240,9 @@ Tout se lance depuis la racine du dépôt.
 conftest verify --policy policies
 ```
 
-Résultat attendu :
+Résultat attendu : **87 tests unitaires**, 0 failure.
 
-![conftest verify — 85 tests, 85 passed](docs/captures/oidc-tests-unitaires.png)
+![conftest verify — tous les tests unitaires passent](docs/captures/oidc-tests-unitaires.png)
 
 ### 2. Règles EC2 sur un plan
 
@@ -251,7 +256,7 @@ conftest test tfplan.json --policy ../../policies
 cd ../..
 ```
 
-Résultat attendu :
+Résultat attendu : **13 contrôles** (les 4 règles EC2), 0 failure.
 
 ![conftest sur la config EC2 — 13 contrôles, 13 passed](docs/captures/conftest-ec2-conforme.png)
 
@@ -264,25 +269,31 @@ cp terraform/oidc.tf terraform/examples/provider.tf "$WORK/" && cd "$WORK"
 terraform init && terraform apply -auto-approve
 terraform show -json > state.json
 
-# Cas conforme
-conftest test state.json --policy "$REPO/policies" --namespace oidc
-conftest test state.json --policy "$REPO/policies" --namespace oidc_sim
+# Dépôt attendu fourni séparément (valeur par défaut de oidc.tf) : active la règle 5 bis,
+# comme dans la démo et dans le CI
+mkdir expected && echo '{"expected_repo":"VOTRE_ORG/VOTRE_REPO"}' > expected/expected.json
 
-# Violation volontaire : sub élargi à ':*'
-sed 's/:pull_request/:*/g' state.json > bad.json
-conftest test bad.json --policy "$REPO/policies" --namespace oidc       # 2 violations
-conftest test bad.json --policy "$REPO/policies" --namespace oidc_sim   # 1 violation
+# Cas conforme
+conftest test state.json --policy "$REPO/policies" --namespace oidc --data expected
+conftest test state.json --policy "$REPO/policies" --namespace oidc_sim --data expected
+
+# Violation volontaire : l'opérateur passe en StringLike ET le sub est élargi à ':*'
+sed 's/\\"StringEquals\\":{/\\"StringLike\\":{/g; s/:pull_request/:*/g' state.json > bad.json
+conftest test bad.json --policy "$REPO/policies" --namespace oidc --data expected       # 4 violations
+conftest test bad.json --policy "$REPO/policies" --namespace oidc_sim --data expected   # 1 violation
 
 terraform destroy -auto-approve && cd "$REPO" && docker compose down
 ```
 
-Résultat attendu sur le cas conforme :
+Résultat attendu sur le cas conforme : **16 contrôles** (`oidc`) et **13** (`oidc_sim`), 0 failure.
 
-![Trust policies conformes — 6 tests, 6 passed](docs/captures/oidc-state-conforme.png)
+![Trust policies conformes — 0 failures](docs/captures/oidc-state-conforme.png)
 
-Résultat attendu sur la violation volontaire :
+Résultat attendu sur la violation volontaire : **4 violations** (`sub` en `:*`, `StringLike` sur les
+deux rôles, suffixe attendu absent) et 1 pour la simulation (un push sur `main` assumerait le rôle
+`plan`).
 
-![Refus volontaire du sub en ':*' — 2 violations](docs/captures/oidc-refus-joker.png)
+![Refus volontaire : StringLike et sub élargi à ':*'](docs/captures/oidc-refus-joker.png)
 
 ---
 
@@ -320,6 +331,7 @@ permissions des rôles, sans compte AWS :
 |---|---|---|
 | 1️⃣ | 🚫 Pas de joker dans le `sub` | `repo:<ORG>/<REPO>:*` (n'importe quel contexte du dépôt) |
 | 2️⃣ | 🎯 Dépôt explicite | `sub` absent, ou `repo:*/<REPO>:...` |
+| 2️⃣bis | 🔤 `sub` comparé en `StringEquals` | `StringLike` (ou tout opérateur à motif) sur le `sub` : un `*` futur élargirait la confiance en silence |
 | 3️⃣ | 🔀 Contexte attendu par rôle | `plan` ≠ `:pull_request`, ou `apply` ≠ `:environment:production` |
 | 4️⃣ | 🎫 Audience exacte | `aud` différent de `sts.amazonaws.com` |
 | 5️⃣ | 👤 Pas de `Principal "*"` | trust policy ouverte à toute identité |
@@ -430,6 +442,7 @@ Les règles de la section précédente contrôlent la *forme* des policies ; la 
 
 ---
 
+<a id="limites"></a>
 ## ⚠️ Limites et risques assumés
 
 **Pas de compte AWS réel.** Ce projet est réalisé sans compte AWS : je n'en ai pas créé, pour éviter
