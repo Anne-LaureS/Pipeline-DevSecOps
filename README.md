@@ -58,10 +58,10 @@ sécurité IAM (il accepte n'importe quel jeton, voir plus bas). La configuratio
 
 | Terme | En clair |
 |---|---|
-| **OIDC (OpenID Connect)** | Couche d'identité construite sur OAuth 2.0 : un **fournisseur d'identité** émet des **jetons signés** (JWT) décrivant une identité, que d'autres services acceptent ou refusent. Ici, GitHub est le fournisseur d'identité et AWS le service qui lui fait confiance. |
+| **OIDC (OpenID Connect)** | **Protocole d'authentification**, couche d'identité construite sur OAuth 2.0 : un **fournisseur d'identité** émet des **jetons signés** (JWT) décrivant une identité, que d'autres services (les *relying parties*) acceptent ou refusent. Ici, GitHub est le fournisseur d'identité et AWS la *relying party*. |
 | **Fédération GitHub → AWS** | Un job demande à GitHub un jeton décrivant ce job (dépôt, branche, événement, environment…) — il lui faut la permission `id-token: write` — puis l'échange auprès d'**AWS STS** (`AssumeRoleWithWebIdentity`) contre des credentials temporaires. AWS vérifie la signature avec les clés publiques publiées par GitHub, puis applique la trust policy du rôle. La confiance est posée **à l'avance**, en déclarant GitHub comme fournisseur OIDC dans IAM ; aucune clé d'accès n'est échangée. |
 | **Jeton (JWT) et claims** | Le jeton est un document signé dont les champs, les *claims*, portent l'émetteur (`iss`), l'audience (`aud`), le sujet (`sub`) et une expiration courte. |
-| **Rôle IAM** | Une identité AWS qui porte des permissions. On ne s'y connecte pas : on l'**assume** via STS, ce qui donne des credentials temporaires. |
+| **Rôle IAM** | Identité AWS **sans identifiants permanents**, définie par deux éléments : une *trust policy* (qui peut l'assumer) et des *policies de permissions* (ce qu'elle peut faire). Une identité autorisée l'**assume** via AWS STS et reçoit des credentials temporaires (clé d'accès, secret, session token) limités aux permissions du rôle, y compris une identité fédérée comme un job GitHub, qui n'a aucun compte IAM. |
 | **Trust policy** | La policy attachée à un rôle qui dit **qui peut l'assumer**, sous quelles conditions sur les claims du jeton. Elle ne donne **aucune permission** : celles-ci viennent des autres policies du rôle. |
 | **Claim `sub`** | Le claim qui dit *qui* demande : dépôt + contexte, ex. `repo:ORG/REPO:pull_request`. Les conditions de la trust policy (`StringEquals`, `StringLike`) le comparent à un motif. |
 | **Claim `aud`** | L'audience visée par le jeton. Pour AWS STS, elle doit valoir `sts.amazonaws.com`. |
