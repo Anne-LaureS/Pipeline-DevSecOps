@@ -68,7 +68,9 @@ Le cœur de ce pipeline n'est pas Terraform, c'est le modèle d'accès qui l'ent
 ├── policies/
 │   ├── securite.rego        # 4 règles de sécurité sur le plan (Conftest/OPA)
 │   ├── oidc.rego            # 5 règles sur les trust policies OIDC (lues dans le state)
-│   └── oidc_test.rego       # 11 tests unitaires des règles OIDC (hors ligne)
+│   ├── oidc_test.rego       # 11 tests unitaires des règles OIDC (hors ligne)
+│   ├── oidc_simulation.rego # simulation de la décision AssumeRoleWithWebIdentity (8 jetons)
+│   └── oidc_simulation_test.rego # 21 tests du moteur de simulation
 ├── docs/
 │   ├── tp5-rapport.md        # Rapport complet (livrable principal)
 │   └── captures/             # Preuves visuelles (commentaire de plan, etc.)
@@ -200,6 +202,71 @@ Résultat attendu sur la violation volontaire (le dépôt refuse le `sub` élarg
 
 ---
 
+## 🧪 Ce que LocalStack n'applique pas — et la simulation
+
+**Constat.** On pourrait croire que LocalStack permet de « faire marcher » l'OIDC sans compte AWS.
+Ce n'est pas le cas : il renvoie des credentials pour **n'importe quel jeton**, sans vérifier la
+signature ni les conditions `sub` / `aud` de la trust policy. Test réalisé sur les rôles de
+`oidc.tf` appliqués à LocalStack 4.4.0 (jetons fictifs non signés) :
+
+| Jeton | Décision d'AWS | LocalStack |
+|---|---|---|
+| PR du bon dépôt → rôle `plan` | accepté | accepté |
+| **PR d'un autre dépôt** → rôle `plan` | **refusé** | **accepté** ❌ |
+| **PR du bon dépôt** → rôle `apply` | **refusé** | **accepté** ❌ |
+
+Un `AssumeRole` réussi sur LocalStack ne prouve donc rien sur la sécurité du design. C'est la
+raison pour laquelle ce dépôt ne présente jamais cette réussite comme une preuve.
+
+<details>
+<summary>Reproduire le constat</summary>
+
+```bash
+# LocalStack démarré, oidc.tf appliqué (voir plus haut)
+b64() { printf '%s' "$1" | base64 -w0 | tr '+/' '-_' | tr -d '='; }
+jwt() { echo "$(b64 '{"alg":"none","typ":"JWT"}').$(b64 "$1").c2ln"; }
+export AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test AWS_DEFAULT_REGION=eu-west-3
+aws --endpoint-url=http://localhost:4566 sts assume-role-with-web-identity \
+  --role-arn arn:aws:iam::000000000000:role/gha-terraform-plan \
+  --role-session-name test-session \
+  --web-identity-token "$(jwt '{"aud":"sts.amazonaws.com","sub":"repo:attaquant/evil:pull_request"}')"
+# -> credentials renvoyés, alors qu'AWS refuserait
+```
+</details>
+
+**La simulation.** Faute de pouvoir interroger AWS, [`policies/oidc_simulation.rego`](policies/oidc_simulation.rego)
+rejoue l'évaluation documentée d'AWS sur 8 jetons fictifs (`Allow` et `Deny` explicite prioritaire,
+opérateurs `StringEquals`, `StringEqualsIgnoreCase`, `StringLike`, `StringNotEquals`, `StringNotLike`,
+ET entre les conditions, OU entre les valeurs d'une clé, clé absente = faux pour un opérateur positif
+et vrai pour un négatif), et vérifie que chaque rôle les
+accepte ou les refuse comme prévu :
+
+| Jeton fictif | Rôle | Attendu |
+|---|---|---|
+| PR du dépôt | `plan` | accepté |
+| push sur `main` du dépôt | `apply` | accepté |
+| PR du dépôt | `apply` | refusé |
+| push sur `main` du dépôt | `plan` | refusé |
+| push sur une branche quelconque | `apply` | refusé |
+| PR d'un fork (autre organisation) | `plan` | refusé |
+| push `main` d'un fork | `apply` | refusé |
+| PR du dépôt, mauvaise audience | `plan` | refusé |
+
+```bash
+conftest test state.json --policy policies --namespace oidc_sim
+```
+
+Les règles de la section précédente contrôlent la *forme* des policies ; la simulation contrôle leur
+*effet*. Sur le state avec `sub` en `:*`, elle signale qu'un push sur `main` assumerait le rôle
+`plan`.
+
+> ⚠️ **C'est une simulation, pas AWS.** Tout opérateur non modélisé (`ForAnyValue:`, `IfExists`,
+> `Bool`...) est **signalé** par la règle `deny_prerequis` plutôt qu'ignoré : la simulation devient
+> « non concluante » au lieu de conclure à tort. Les SCP et permission boundaries ne sont pas
+> modélisés ; la signature du jeton et le thumbprint ne sont pas vérifiés.
+
+---
+
 ## ⚠️ Limite assumée : pas de compte AWS réel
 
 Ce TP a été réalisé sans compte AWS fourni, et sans en créer un à titre personnel et payant. Le pipeline tourne donc contre LocalStack plutôt que contre un vrai compte :
@@ -212,7 +279,8 @@ Ce TP a été réalisé sans compte AWS fourni, et sans en créer un à titre pe
   Community n'émule pas l'enforcement IAM. Elle est en revanche
   **vérifiée statiquement** : les 5 règles de `policies/oidc.rego`
   contrôlent le contenu des trust policies (voir plus haut). Cela prouve
-  que la condition est bien posée, pas qu'AWS l'applique.
+  que la condition est bien posée, pas qu'AWS l'applique (LocalStack
+  accepte même un jeton d'un autre dépôt : voir la section précédente).
 
 Ce choix, ses conséquences et les risques résiduels qui en découlent
 sont documentés en détail dans la partie 0 et la partie 4 (audit

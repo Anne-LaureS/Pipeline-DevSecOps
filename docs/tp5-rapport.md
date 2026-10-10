@@ -117,6 +117,44 @@ Refus volontaire du `sub` élargi à `:*` (2 violations) :
 
 ![Refus du sub avec joker — 2 violations](./captures/oidc-refus-joker.png)
 
+#### Ce que LocalStack n'applique pas
+
+Une fois les rôles appliqués sur LocalStack 4.4.0, j'ai appelé
+`AssumeRoleWithWebIdentity` avec des jetons fictifs non signés :
+
+| Jeton | Décision d'AWS | LocalStack |
+|---|---|---|
+| PR du bon dépôt → rôle `plan` | accepté | accepté |
+| PR d'un autre dépôt → rôle `plan` | refusé | **accepté** |
+| PR du bon dépôt → rôle `apply` | refusé | **accepté** |
+
+LocalStack ne vérifie ni la signature du jeton ni les conditions `sub` /
+`aud`. Un `AssumeRole` réussi contre lui ne prouve donc **rien** sur la
+sécurité du design : c'est la preuve concrète, et non plus seulement
+déclarée, de la limite de la partie 0.
+
+#### Simulation de la décision d'AWS
+
+Pour rendre observable l'*effet* des conditions malgré cela,
+`policies/oidc_simulation.rego` rejoue l'évaluation documentée d'AWS
+(`Allow` et `Deny` explicite prioritaire ; `StringEquals`,
+`StringEqualsIgnoreCase`, `StringLike`, `StringNotEquals`,
+`StringNotLike` ; ET entre conditions, OU entre valeurs d'une clé)
+sur 8 jetons fictifs et vérifie la décision attendue pour
+chaque rôle : PR du dépôt → `plan` accepté ; `main` → `apply` accepté ;
+PR → `apply`, `main` → `plan`, branche quelconque → `apply`, fork,
+mauvaise audience : refusés. Sur le state avec `sub` élargi à `:*`, la
+simulation signale qu'un push sur `main` assumerait le rôle `plan` — le
+scénario d'attaque ci-dessus, désormais rejoué automatiquement.
+
+**Limites de la simulation :** tout opérateur non modélisé
+(`ForAnyValue:`, `IfExists`, `Bool`...) est signalé et rend la
+simulation « non concluante » plutôt que d'être ignoré en silence
+(ignorer un `Deny` aurait été permissif) ; les SCP et permission
+boundaries ne sont pas modélisés ; la signature du jeton et le
+thumbprint ne sont pas vérifiés. C'est une modélisation de la logique
+AWS, pas AWS.
+
 > ⚠️ **Limite inchangée** : ces contrôles vérifient le *contenu* des
 > policies. L'enforcement réel par AWS (`AssumeRoleWithWebIdentity`
 > accepté ou refusé selon le jeton) reste non exercé, faute de compte
