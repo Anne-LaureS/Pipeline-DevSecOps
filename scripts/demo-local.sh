@@ -138,9 +138,9 @@ cp "$ROOT/terraform/oidc.tf" "$ROOT/terraform/examples/provider.tf" "$OIDC_DIR/"
     conftest test state.json --policy "$ROOT/policies" --namespace oidc_sim --data expected
 
   echo ""
-  echo "🚨 Refus volontaire : on remplace ':pull_request' par ':*' (le cas du test négatif)"
-  sed 's/:pull_request/:*/g' state.json > state_bad.json
-  check_refus "Règles OIDC : sub élargi à ':*' bloqué" \
+  echo "🚨 Refus volontaire : l'opérateur passe en StringLike ET le sub est élargi à ':*' (le cas du test négatif)"
+  sed 's/\\"StringEquals\\":{/\\"StringLike\\":{/g; s/:pull_request/:*/g' state.json > state_bad.json
+  check_refus "Règles OIDC : StringLike + sub élargi à ':*' bloqué" \
     conftest test state_bad.json --policy "$ROOT/policies" --namespace oidc --data expected
 
   echo ""
