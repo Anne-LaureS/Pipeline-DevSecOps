@@ -110,7 +110,7 @@ deny contains msg if {
 	suffix := expected_sub_suffix[r.values.name]
 	some st in oidc_statements(r)
 	some sub in claim_values(st, sub_key)
-	not endswith(sub, suffix)
+	not regex.match(sprintf("^repo:[^/*?:]+/[^/*?:]+%s$", [suffix]), sub)
 	msg := sprintf(
 		"SECURITE: le role '%s' doit avoir un sub finissant par '%s' (trouve : '%s')",
 		[r.address, suffix, sub],
@@ -155,17 +155,70 @@ deny contains msg if {
 }
 
 # ======================================================================
-# Règles 6 à 8 — Permissions des rôles gha-terraform-* (moindre privilège)
-# Lues dans le state : aws_iam_policy.values.policy (document JSON).
+# Règle 5 bis — Dépôt attendu fourni de l'extérieur (donnée indépendante)
+# Sans `data.expected_repo`, cette règle est inactive. Avec :
+#   conftest test state.json --policy policies --namespace oidc --data expected/
+# où expected/expected.json contient {"expected_repo": "<org>/<repo>"}.
 # ======================================================================
 
-managed_policies contains p if {
-	some p in input.values.root_module.resources
-	p.type == "aws_iam_policy"
-	startswith(p.values.name, "gha-terraform-")
+deny contains msg if {
+	expected := data.expected_repo
+	some r in iam_roles
+	github_oidc_role(r)
+	some st in oidc_statements(r)
+	some sub in claim_values(st, sub_key)
+	not startswith(sub, sprintf("repo:%s:", [expected]))
+	msg := sprintf(
+		"SECURITE: le role '%s' cible un depot different de celui attendu (%s) : sub '%s'",
+		[r.address, expected, sub],
+	)
 }
 
-policy_statements(p) := as_array(json.unmarshal(p.values.policy).Statement)
+# ======================================================================
+# Règles 6 à 9 — Permissions des rôles OIDC GitHub (moindre privilège)
+#
+# Les documents examinés sont ceux RÉELLEMENT attachés à un rôle assumable par
+# GitHub (attachement ou policy inline), et non ceux dont le nom commence par
+# un préfixe : un nom ne prouve rien. Une policy qu'on ne peut pas lire
+# (managée AWS, externe) est refusée : on ne valide pas ce qu'on ne voit pas.
+# ======================================================================
+
+resources_of_type(t) := {r | some r in input.values.root_module.resources; r.type == t}
+
+# Attachements rôle -> ARN de policy, via aws_iam_role_policy_attachment
+# (un rôle) ou aws_iam_policy_attachment (liste `roles`).
+role_attachments contains {"role": r.values.name, "arn": a.values.policy_arn, "address": a.address} if {
+	some r in iam_roles
+	github_oidc_role(r)
+	some a in resources_of_type("aws_iam_role_policy_attachment")
+	a.values.role == r.values.name
+}
+
+role_attachments contains {"role": r.values.name, "arn": a.values.policy_arn, "address": a.address} if {
+	some r in iam_roles
+	github_oidc_role(r)
+	some a in resources_of_type("aws_iam_policy_attachment")
+	r.values.name in a.values.roles
+}
+
+attached_documents contains d if {
+	some att in role_attachments
+	some p in resources_of_type("aws_iam_policy")
+	p.values.arn == att.arn
+	d := {"role": att.role, "name": p.values.name, "document": p.values.policy}
+}
+
+attached_documents contains d if {
+	some r in iam_roles
+	github_oidc_role(r)
+	some p in resources_of_type("aws_iam_role_policy")
+	p.values.role == r.values.name
+	d := {"role": r.values.name, "name": p.values.name, "document": p.values.policy}
+}
+
+doc_statements(d) := as_array(json.unmarshal(d.document).Statement)
+
+known_policy_arns contains p.values.arn if some p in resources_of_type("aws_iam_policy")
 
 # Actions qui donnent accès à du CONTENU (données, journaux, secrets) :
 # interdites à une policy « lecture seule ».
@@ -183,42 +236,100 @@ action_covers(pattern, action) if {
 
 # Règle 6 — pas d'action joker de service entier (s3:*, ec2:*, *)
 deny contains msg if {
-	some p in managed_policies
-	some st in policy_statements(p)
+	some d in attached_documents
+	some st in doc_statements(d)
 	st.Effect == "Allow"
 	some a in as_array(st.Action)
 	regex.match(`^(\*|[A-Za-z0-9-]+:\*)$`, a)
 	msg := sprintf(
-		"SECURITE: la policy '%s' autorise '%s' (joker de service entier)",
-		[p.values.name, a],
+		"SECURITE: la policy '%s' (role %s) autorise '%s' (joker de service entier)",
+		[d.name, d.role, a],
 	)
 }
 
-# Règle 7 — la policy lecture seule ne doit pas couvrir de lecture de contenu
+# Règle 6 bis — pas de joker partiel hors lecture (ec2:Run*, ec2:*Instances...)
 deny contains msg if {
-	some p in managed_policies
-	p.values.name == "gha-terraform-plan-readonly"
-	some st in policy_statements(p)
+	some d in attached_documents
+	some st in doc_statements(d)
 	st.Effect == "Allow"
 	some a in as_array(st.Action)
-	some d in data_read_actions
-	action_covers(a, d)
+	regex.match(`[*?]`, a)
+	not regex.match(`^(\*|[A-Za-z0-9-]+:\*)$`, a)
+	not regex.match(`^[a-z0-9-]+:(describe|list|get)[a-z0-9]*\*?$`, lower(a))
+	msg := sprintf(
+		"SECURITE: la policy '%s' (role %s) autorise '%s' (joker partiel hors lecture)",
+		[d.name, d.role, a],
+	)
+}
+
+# Règle 7 — la policy du rôle plan ne doit pas couvrir de lecture de contenu
+deny contains msg if {
+	some d in attached_documents
+	d.role == "gha-terraform-plan"
+	some st in doc_statements(d)
+	st.Effect == "Allow"
+	some a in as_array(st.Action)
+	some c in data_read_actions
+	action_covers(a, c)
 	msg := sprintf(
 		"SECURITE: la policy lecture seule '%s' autorise '%s', qui couvre la lecture de contenu (%s)",
-		[p.values.name, a, d],
+		[d.name, a, c],
 	)
 }
 
 # Règle 8 — Resource "*" réservé aux actions de lecture (Describe/List/Get)
 deny contains msg if {
-	some p in managed_policies
-	some st in policy_statements(p)
+	some d in attached_documents
+	some st in doc_statements(d)
 	st.Effect == "Allow"
 	"*" in as_array(st.Resource)
 	some a in as_array(st.Action)
 	not regex.match(`^[a-z0-9-]+:(describe|list|get)`, lower(a))
 	msg := sprintf(
-		"SECURITE: la policy '%s' autorise l'action d'ecriture '%s' sur Resource '*'",
-		[p.values.name, a],
+		"SECURITE: la policy '%s' (role %s) autorise l'action d'ecriture '%s' sur Resource '*'",
+		[d.name, d.role, a],
+	)
+}
+
+# Règle 9 — NotAction / NotResource interdits (un Allow + NotAction = presque tout)
+deny contains msg if {
+	some d in attached_documents
+	some st in doc_statements(d)
+	st.Effect == "Allow"
+	some k in {"NotAction", "NotResource"}
+	object.get(st, k, null) != null
+	msg := sprintf(
+		"SECURITE: la policy '%s' (role %s) utilise %s dans un Allow : interdit",
+		[d.name, d.role, k],
+	)
+}
+
+# Règle 10 — toute policy attachée qu'on ne peut pas lire est refusée
+deny contains msg if {
+	some att in role_attachments
+	not att.arn in known_policy_arns
+	msg := sprintf(
+		"SECURITE: le role '%s' porte la policy '%s', non verifiable (geree par AWS ou externe)",
+		[att.role, att.arn],
+	)
+}
+
+deny contains msg if {
+	some r in iam_roles
+	github_oidc_role(r)
+	count(object.get(r.values, "managed_policy_arns", [])) > 0
+	msg := sprintf(
+		"SECURITE: le role '%s' declare managed_policy_arns : non verifiable, utiliser des attachements",
+		[r.address],
+	)
+}
+
+deny contains msg if {
+	some r in iam_roles
+	github_oidc_role(r)
+	count(object.get(r.values, "inline_policy", [])) > 0
+	msg := sprintf(
+		"SECURITE: le role '%s' declare inline_policy : non verifiable, utiliser aws_iam_role_policy",
+		[r.address],
 	)
 }

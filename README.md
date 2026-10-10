@@ -94,7 +94,7 @@ Aucun compte AWS ni compte LocalStack n'est nécessaire.
 |---|---|---|
 | 🧹 Qualité | `terraform fmt`, Gitleaks, Trivy | Contrôles bloquants avant tout `plan` |
 | 📐 Plan | Terraform + LocalStack | Génère et affiche le plan d'infrastructure |
-| 🚦 Policy as Code | Conftest / OPA | Bloque toute ressource non conforme (4 règles) et toute trust policy ou permission OIDC trop large (8 règles + simulation) |
+| 🚦 Policy as Code | Conftest / OPA | Bloque toute ressource non conforme (4 règles) et toute trust policy ou permission OIDC trop large (règles + simulation) |
 | 💬 Revue | Commentaire automatique sur PR | Le plan est visible avant merge |
 | ✅ Apply | Environment `production` | Approbation manuelle requise (reviewer obligatoire, déploiement limité à `main`) |
 | 🔑 Authentification | OIDC GitHub ↔ AWS | Conçue et vérifiée statiquement ; **non exercée** (pas de compte AWS), le CI utilise LocalStack |
@@ -149,7 +149,7 @@ Le cœur de ce pipeline n'est pas Terraform, c'est le modèle d'accès qui l'ent
   et la simulation.
 - **Les risques résiduels sont assumés** (détail dans [Limites](#️-limites-et-risques-assumés)) :
   permissions limitées à EC2 et à une région, écritures sur les seules ressources étiquetées
-  `ManagedBy=terraform` (règles 6 à 8 contre toute régression).
+  `ManagedBy=terraform` (règles 6 à 10 contre toute régression).
 
 ---
 
@@ -165,10 +165,10 @@ Le cœur de ce pipeline n'est pas Terraform, c'est le modèle d'accès qui l'ent
 │   └── examples/            # Ressources de démo testées contre LocalStack
 ├── policies/
 │   ├── securite.rego        # 4 règles de sécurité sur le plan (Conftest/OPA)
-│   ├── oidc.rego            # 8 règles : trust policies et permissions (lues dans le state)
-│   ├── oidc_test.rego       # 20 tests unitaires de ces règles (hors ligne)
+│   ├── oidc.rego            # règles sur les trust policies et les permissions (lues dans le state)
+│   ├── oidc_test.rego       # tests unitaires de ces règles, un par contournement connu (hors ligne)
 │   ├── oidc_simulation.rego # simulation de la décision AssumeRoleWithWebIdentity (10 jetons)
-│   └── oidc_simulation_test.rego  # 24 tests du moteur de simulation
+│   └── oidc_simulation_test.rego  # tests du moteur de simulation
 ├── docs/
 │   ├── rapport.md       # Rapport détaillé
 │   ├── oidc-architecture.svg
@@ -218,7 +218,7 @@ conftest verify --policy policies
 
 Résultat attendu :
 
-![conftest verify — 44 tests, 44 passed](docs/captures/oidc-tests-unitaires.png)
+![conftest verify — tests unitaires, 0 failures](docs/captures/oidc-tests-unitaires.png)
 
 ### 2. Règles EC2 sur un plan
 
@@ -282,7 +282,7 @@ Chacune a été testée **négativement** (violation volontaire → message de r
 
 ---
 
-## 🔑 Les 8 règles sur les rôles OIDC (trust policies et permissions)
+## 🔑 Les règles sur les rôles OIDC (trust policies et permissions)
 
 [`policies/oidc.rego`](policies/oidc.rego) vérifie le **contenu** des trust policies et des
 permissions des rôles, sans compte AWS :
@@ -294,9 +294,30 @@ permissions des rôles, sans compte AWS :
 | 3️⃣ | 🔀 Contexte attendu par rôle | `plan` ≠ `:pull_request`, ou `apply` ≠ `:environment:production` |
 | 4️⃣ | 🎫 Audience exacte | `aud` différent de `sts.amazonaws.com` |
 | 5️⃣ | 👤 Pas de `Principal "*"` | trust policy ouverte à toute identité |
-| 6️⃣ | 🧱 Pas d'action joker de service | `ec2:*`, `s3:*`, `*` dans une policy `gha-terraform-*` |
-| 7️⃣ | 📖 Lecture seule vraiment en lecture | `s3:Get*` ou `logs:Get*` (couvrent `GetObject`, `GetLogEvents`) dans la policy `plan` |
+| 5️⃣bis | 🧭 Dépôt attendu fourni de l'extérieur | `sub` ciblant un autre dépôt que `expected_repo` (voir ci-dessous) |
+| 6️⃣ | 🧱 Pas d'action joker de service | `ec2:*`, `s3:*`, `*` |
+| 6️⃣bis | 🧱 Pas de joker partiel hors lecture | `ec2:Run*`, `ec2:Delete*`… (seuls `Describe*` / `List*` / `Get*` sont tolérés) |
+| 7️⃣ | 📖 Lecture seule vraiment en lecture | `s3:Get*` ou `logs:Get*` (couvrent `GetObject`, `GetLogEvents`) pour le rôle `plan` |
 | 8️⃣ | 🎯 `Resource "*"` réservé à la lecture | une action d'écriture sur `Resource "*"` |
+| 9️⃣ | 🚫 Pas de `NotAction` / `NotResource` | un `Allow` + `NotAction` autorise « presque tout » |
+| 🔟 | 🔍 Pas de policy qu'on ne peut pas lire | policy managée AWS (`AdministratorAccess`…), externe, `managed_policy_arns`, `inline_policy` |
+
+**Ce qui est examiné.** Les règles 6 à 10 portent sur les policies **réellement attachées** à un rôle
+assumable par GitHub (`aws_iam_role_policy_attachment`, `aws_iam_policy_attachment`,
+`aws_iam_role_policy`), et non sur les policies dont le nom commence par un préfixe : un nom ne prouve
+rien. Une policy attachée mais illisible est refusée, on ne valide pas ce qu'on ne voit pas.
+
+**Dépôt attendu indépendant.** Sans donnée externe, la simulation déduirait le dépôt de référence du
+`sub` du rôle testé (vérification circulaire : un mauvais dépôt passerait). On fournit donc
+`expected_repo` séparément, avec `--data` :
+
+```bash
+mkdir expected && echo '{"expected_repo":"<org>/<repo>"}' > expected/expected.json
+conftest test state.json --policy policies --namespace oidc --data expected
+```
+
+Le CI le fournit lui-même (`GITHUB_REPOSITORY`) et la démo utilise les valeurs par défaut de
+`oidc.tf`. Sans `--data`, la règle 5bis est inactive et la déduction circulaire s'applique.
 
 **Particularité** : ces règles lisent le **state** (`terraform show -json` après un apply sur
 LocalStack) et non le plan. Dans un plan, `assume_role_policy` dépend de l'ARN du provider OIDC, qui
@@ -404,7 +425,7 @@ Risques résiduels connus :
 - `ec2:CreateTags` n'est pas conditionné : un job `apply` pourrait étiqueter une ressource
   `ManagedBy=terraform` pour l'inclure dans son périmètre.
 - Tout service ajouté (S3, RDS, IAM...) doit l'être avec ses actions nommées et ses ARN, pas en
-  joker : les règles 6 à 8 le vérifient.
+  joker : les règles 6 à 10 le vérifient.
 - Les variables `github_org` / `github_repo` valent encore `VOTRE_ORG` / `VOTRE_REPO` : à renseigner
   avant tout vrai déploiement.
 

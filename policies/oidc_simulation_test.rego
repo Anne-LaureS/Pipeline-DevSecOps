@@ -228,3 +228,17 @@ test_operateur_non_modelise_ne_donne_jamais_acces if {
 	r := role("gha-terraform-plan", doc_with([stmt]))
 	decision(r, token("repo:acme/infra:pull_request", "sts.amazonaws.com")) == false
 }
+
+# --- Dépôt attendu indépendant ----------------------------------------
+
+test_depot_attendu_fourni_detecte_un_mauvais_depot if {
+	# les rôles ciblent acme/infra mais le dépôt attendu est autre : le
+	# jeton « PR du dépôt » est alors refusé par les deux rôles
+	count(deny_pr_vers_plan) == 1 with input as state([plan_ok, apply_ok])
+		with data.expected_repo as "autre-org/autre-repo"
+}
+
+test_depot_attendu_fourni_conforme if {
+	count(all_msgs) == 0 with input as state([plan_ok, apply_ok])
+		with data.expected_repo as "acme/infra"
+}
