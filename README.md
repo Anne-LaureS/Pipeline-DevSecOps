@@ -190,7 +190,11 @@ conftest test state.json --policy <chemin-du-depot>/policies --namespace oidc
 terraform destroy -auto-approve
 ```
 
+Résultat attendu sur le cas conforme :
+
 ![Trust policies conformes — 6 tests, 6 passed](docs/captures/oidc-state-conforme.png)
+
+Résultat attendu sur la violation volontaire (le dépôt refuse le `sub` élargi) :
 
 ![Refus volontaire du sub en ':*' — 2 violations](docs/captures/oidc-refus-joker.png)
 
