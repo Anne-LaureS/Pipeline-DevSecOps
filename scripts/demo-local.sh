@@ -88,7 +88,7 @@ if command -v conftest >/dev/null 2>&1; then
     conftest test state.json --policy "$ROOT/policies" --namespace oidc
 
     echo ""
-    echo "🧪 Simulation de la décision AWS (8 jetons fictifs : PR, main, fork, mauvaise audience...)"
+    echo "🧪 Simulation de la décision AWS (10 jetons fictifs : PR, environment, fork, mauvaise audience...)"
     conftest test state.json --policy "$ROOT/policies" --namespace oidc_sim
 
     echo ""
@@ -100,7 +100,7 @@ if command -v conftest >/dev/null 2>&1; then
     echo ""
     echo "🧪 Même state, vu par la simulation : que pourrait assumer un attaquant ?"
     conftest test state_bad.json --policy "$ROOT/policies" --namespace oidc_sim || \
-      echo "👉 Avec le joker, un job hors pull_request assumerait le rôle plan."
+      echo "👉 Avec le joker, un job hors pull_request (ex. push sur main) assumerait le rôle plan."
 
     terraform destroy -input=false -auto-approve >/dev/null
   )

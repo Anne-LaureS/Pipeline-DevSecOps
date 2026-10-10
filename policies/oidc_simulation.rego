@@ -158,12 +158,26 @@ scenarios := {
 		"aud": audience,
 		"attendu": true,
 	},
-	"main_vers_apply": {
-		"nom": "push sur main du depot -> role apply",
+	"env_production_vers_apply": {
+		"nom": "job du depot sur l'environment production -> role apply",
+		"role": "gha-terraform-apply",
+		"sub": sprintf("repo:%s:environment:production", [repo]),
+		"aud": audience,
+		"attendu": true,
+	},
+	"main_sans_env_vers_apply": {
+		"nom": "push sur main sans environment -> role apply",
 		"role": "gha-terraform-apply",
 		"sub": sprintf("repo:%s:ref:refs/heads/main", [repo]),
 		"aud": audience,
-		"attendu": true,
+		"attendu": false,
+	},
+	"autre_env_vers_apply": {
+		"nom": "job du depot sur un autre environment -> role apply",
+		"role": "gha-terraform-apply",
+		"sub": sprintf("repo:%s:environment:staging", [repo]),
+		"aud": audience,
+		"attendu": false,
 	},
 	"pr_vers_apply": {
 		"nom": "PR du depot -> role apply",
@@ -194,9 +208,9 @@ scenarios := {
 		"attendu": false,
 	},
 	"autre_depot_vers_apply": {
-		"nom": "push main d'un fork (autre organisation) -> role apply",
+		"nom": "environment production d'un fork (autre organisation) -> role apply",
 		"role": "gha-terraform-apply",
-		"sub": sprintf("repo:attaquant/%s:ref:refs/heads/main", [repo_name]),
+		"sub": sprintf("repo:attaquant/%s:environment:production", [repo_name]),
 		"aud": audience,
 		"attendu": false,
 	},
@@ -252,7 +266,11 @@ deny_prerequis contains msg if {
 
 deny_pr_vers_plan contains check("pr_vers_plan")
 
-deny_main_vers_apply contains check("main_vers_apply")
+deny_env_production_vers_apply contains check("env_production_vers_apply")
+
+deny_main_sans_env_vers_apply contains check("main_sans_env_vers_apply")
+
+deny_autre_env_vers_apply contains check("autre_env_vers_apply")
 
 deny_pr_vers_apply contains check("pr_vers_apply")
 

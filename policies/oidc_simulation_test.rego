@@ -33,9 +33,21 @@ state(roles) := {"values": {"root_module": {"resources": roles}}}
 
 plan_ok := role("gha-terraform-plan", trust("repo:acme/infra:pull_request", "sts.amazonaws.com"))
 
-apply_ok := role("gha-terraform-apply", trust("repo:acme/infra:ref:refs/heads/main", "sts.amazonaws.com"))
+apply_ok := role("gha-terraform-apply", trust("repo:acme/infra:environment:production", "sts.amazonaws.com"))
 
-all_msgs := (((((((deny_prerequis | deny_pr_vers_plan) | deny_main_vers_apply) | deny_pr_vers_apply) | deny_main_vers_plan) | deny_branche_vers_apply) | deny_autre_depot_vers_plan) | deny_autre_depot_vers_apply) | deny_mauvaise_audience
+all_msgs := union({
+	deny_prerequis,
+	deny_pr_vers_plan,
+	deny_env_production_vers_apply,
+	deny_main_sans_env_vers_apply,
+	deny_autre_env_vers_apply,
+	deny_pr_vers_apply,
+	deny_main_vers_plan,
+	deny_branche_vers_apply,
+	deny_autre_depot_vers_plan,
+	deny_autre_depot_vers_apply,
+	deny_mauvaise_audience,
+})
 
 has_msg(msgs, needle) if {
 	some m in msgs
@@ -55,6 +67,18 @@ test_pr_du_depot_assume_le_role_plan if {
 
 test_pr_du_depot_ne_peut_pas_assumer_le_role_apply if {
 	decision(apply_ok, token("repo:acme/infra:pull_request", "sts.amazonaws.com")) == false
+}
+
+test_job_environment_production_assume_le_role_apply if {
+	decision(apply_ok, token("repo:acme/infra:environment:production", "sts.amazonaws.com")) == true
+}
+
+test_push_main_sans_environment_ne_peut_pas_assumer_apply if {
+	decision(apply_ok, token("repo:acme/infra:ref:refs/heads/main", "sts.amazonaws.com")) == false
+}
+
+test_autre_environment_refuse if {
+	decision(apply_ok, token("repo:acme/infra:environment:staging", "sts.amazonaws.com")) == false
 }
 
 test_autre_depot_refuse if {
