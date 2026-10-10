@@ -9,6 +9,11 @@
 # testées sont celles de oidc.tf. Un désaccord entre les deux moteurs signale
 # un bug dans l'un des deux.
 #
+# En mode --github sur une pull request, une vérification d'INTENTION s'ajoute :
+# le jeton légitime doit être accepté par le rôle plan et refusé par apply. Sans
+# elle, deux moteurs qui refusent tout seraient « d'accord » (cas réel rencontré :
+# le sub émis par GitHub contenait des identifiants numériques absents de oidc.tf).
+#
 # Ce que cela établit : la logique des claims (émetteur, audience, sub) est
 # cohérente entre deux implémentations, avec de vrais jetons GitHub en mode
 # --github. Ce que cela n'établit PAS : le comportement d'AWS lui-même.
@@ -221,8 +226,19 @@ for i in "${!TOKENS[@]}"; do
     fi
     TOTAL=$((TOTAL + 1))
     mark="✅"
+    note=""
     if [ "$sim" != "$got" ]; then mark="❌"; FAILED=$((FAILED + 1)); fi
-    printf '%s  %-20s %-50s %-18s %-8s %-8s\n' "$mark" "$role" "$sub" "$aud" "$sim" "$got"
+    # Intention, indépendante des deux moteurs : sur une pull request, le jeton
+    # légitime (bonne audience) DOIT être accepté par le rôle plan et refusé par
+    # apply. Deux moteurs qui refusent tout seraient « d'accord » : ceci le détecte.
+    if [ "$MODE" = "--github" ] && [ "${GITHUB_EVENT_NAME:-}" = "pull_request" ]; then
+      intent="REFUSÉ"
+      if [ "$aud" = "$GOOD_AUD" ] && [ "$role" = "gha-terraform-plan" ]; then intent="ACCEPTÉ"; fi
+      if [ "$intent" != "$got" ]; then
+        mark="❌"; FAILED=$((FAILED + 1)); note="  <- intention : $intent (sub réel du jeton : voir colonne sub)"
+      fi
+    fi
+    printf '%s  %-20s %-50s %-18s %-8s %-8s%s\n' "$mark" "$role" "$sub" "$aud" "$sim" "$got" "$note"
   done
 done
 

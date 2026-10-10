@@ -17,6 +17,33 @@ variable "github_repo" {
   default     = "VOTRE_REPO"
 }
 
+variable "github_org_id" {
+  description = <<-EOT
+    Identifiant numérique du propriétaire du dépôt. Vide : sub classique
+    (repo:ORG/REPO:...). Renseigné : sub « immuable » (repo:ORG@ID/REPO@ID:...),
+    que GitHub émet par défaut pour les dépôts qui l'activent
+    (use_immutable_subject). Le sub de la trust policy doit être CELUI du jeton :
+    sinon AWS refuse vos propres jobs.
+  EOT
+  type        = string
+  default     = ""
+}
+
+variable "github_repo_id" {
+  description = "Identifiant numérique du dépôt (voir github_org_id)"
+  type        = string
+  default     = ""
+}
+
+locals {
+  # repo:ORG[@ORG_ID]/REPO[@REPO_ID] — l'identifiant immuable protège contre le
+  # renommage et la recréation d'un dépôt par un tiers sous le même nom.
+  subject_repo = join("/", [
+    var.github_org_id == "" ? var.github_org : "${var.github_org}@${var.github_org_id}",
+    var.github_repo_id == "" ? var.github_repo : "${var.github_repo}@${var.github_repo_id}",
+  ])
+}
+
 variable "aws_region" {
   description = "Région AWS dans laquelle les rôles ont le droit d'agir"
   type        = string
@@ -78,7 +105,7 @@ data "aws_iam_policy_document" "plan_trust" {
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_org}/${var.github_repo}:pull_request"]
+      values   = ["repo:${local.subject_repo}:pull_request"]
     }
 
     # --- TEST NÉGATIF (voir rapport, partie 1) ---
@@ -160,7 +187,7 @@ data "aws_iam_policy_document" "apply_trust" {
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_org}/${var.github_repo}:environment:${var.github_environment}"]
+      values   = ["repo:${local.subject_repo}:environment:${var.github_environment}"]
     }
   }
 }

@@ -150,10 +150,13 @@ jobs:
           # le sub serait détecté au lieu d'être pris pour référence).
           terraform apply -input=false -auto-approve \
             -var "github_org=${GITHUB_REPOSITORY%%/*}" \
-            -var "github_repo=${GITHUB_REPOSITORY#*/}"
+            -var "github_repo=${GITHUB_REPOSITORY#*/}" \
+            -var "github_org_id=${{ github.repository_owner_id }}" \
+            -var "github_repo_id=${{ github.repository_id }}"
           terraform show -json > state.json
           mkdir expected
-          printf '{"expected_repo":"%s"}' "$GITHUB_REPOSITORY" > expected/expected.json
+          EXPECTED="${GITHUB_REPOSITORY%%/*}@${{ github.repository_owner_id }}/${GITHUB_REPOSITORY#*/}@${{ github.repository_id }}"
+          printf '{"expected_repo":"%s"}' "$EXPECTED" > expected/expected.json
           conftest test state.json --policy "$GITHUB_WORKSPACE/policies" --namespace oidc --data expected
           # Simulation de la décision AWS : 10 jetons fictifs contre ces rôles.
           conftest test state.json --policy "$GITHUB_WORKSPACE/policies" --namespace oidc_sim --data expected
@@ -217,7 +220,9 @@ jobs:
           terraform init -input=false
           terraform apply -input=false -auto-approve \
             -var "github_org=${GITHUB_REPOSITORY%%/*}" \
-            -var "github_repo=${GITHUB_REPOSITORY#*/}"
+            -var "github_repo=${GITHUB_REPOSITORY#*/}" \
+            -var "github_org_id=${{ github.repository_owner_id }}" \
+            -var "github_repo_id=${{ github.repository_id }}"
           terraform show -json > "$GITHUB_WORKSPACE/state.json"
 
       - name: Setup conftest (binaire vérifié par empreinte SHA-256)
@@ -237,12 +242,12 @@ jobs:
       # désaccord signale un défaut dans l'un des deux moteurs.
       - name: Jetons synthétiques (autre dépôt, main, environment, audience)
         env:
-          EXPECTED_REPO: ${{ github.repository }}
+          EXPECTED_REPO: ${{ github.repository_owner }}@${{ github.repository_owner_id }}/${{ github.event.repository.name }}@${{ github.repository_id }}
         run: ./scripts/openbao-oidc-check.sh state.json --local
 
       - name: Vrais jetons GitHub (signature vérifiée via le JWKS de GitHub)
         env:
-          EXPECTED_REPO: ${{ github.repository }}
+          EXPECTED_REPO: ${{ github.repository_owner }}@${{ github.repository_owner_id }}/${{ github.event.repository.name }}@${{ github.repository_id }}
         run: ./scripts/openbao-oidc-check.sh state.json --github
 
   ##########################################################
