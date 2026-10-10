@@ -6,7 +6,7 @@
 ![Trivy](https://img.shields.io/badge/Trivy-IaC%20scan-1904DA)
 ![Gitleaks](https://img.shields.io/badge/Gitleaks-secret%20scan-orange)
 
-> 🛠️ **Projet — IaC, IAM & Policy as Code**
+## 🛠️ Projet — IaC, IAM & Policy as Code
 
 > 📘 **Le rapport est le document de référence** : [`docs/rapport.md`](docs/rapport.md) explique la
 > démarche, les décisions de conception (et celles qui ont changé), les preuves capturées, l'audit
