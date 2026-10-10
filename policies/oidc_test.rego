@@ -14,8 +14,7 @@ trust(principal, sub, aud) := {
 		"Action": "sts:AssumeRoleWithWebIdentity",
 		"Principal": principal,
 		"Condition": {
-			"StringEquals": {aud_key: aud},
-			"StringLike": {sub_key: sub},
+			"StringEquals": {aud_key: aud, sub_key: sub},
 		},
 	}],
 }
@@ -290,4 +289,23 @@ test_aws_iam_policy_attachment_est_examine if {
 	}
 	res := [good_plan, good_apply, policy_res("p", [st]), att]
 	has_msg(deny, "joker de service entier") with input as state(res)
+}
+
+# --- Règle 2 bis : opérateur du sub -----------------------------------
+
+test_sub_avec_string_like_refuse if {
+	doc := {"Version": "2012-10-17", "Statement": [{
+		"Effect": "Allow",
+		"Action": "sts:AssumeRoleWithWebIdentity",
+		"Principal": federated,
+		"Condition": {
+			"StringEquals": {aud_key: "sts.amazonaws.com"},
+			"StringLike": {sub_key: "repo:acme/infra:pull_request"},
+		},
+	}]}
+	has_msg(deny, "utiliser StringEquals") with input as state([role("gha-terraform-plan", doc), good_apply])
+}
+
+test_sub_avec_string_equals_accepte if {
+	not has_msg(deny, "utiliser StringEquals") with input as state([good_plan, good_apply])
 }

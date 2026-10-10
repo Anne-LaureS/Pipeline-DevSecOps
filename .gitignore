@@ -5,6 +5,13 @@
 *.tfstate.*
 tfplan.binary
 tfplan.json
+tfplan.txt
+
+# Artefacts des commandes du README (si lancées depuis la racine)
+state.json
+bad.json
+state_bad.json
+expected/
 
 # Divers
 *.tar.gz

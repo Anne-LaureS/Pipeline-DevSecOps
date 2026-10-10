@@ -54,11 +54,15 @@ compte. Conséquences assumées, à lire en regard de la partie 4 :
 <a id="partie-1"></a>
 ## 🔐 1. Politique de confiance OIDC finale (commentée)
 
-Voir `terraform/oidc.tf`. Extrait de la condition finale, rôle apply :
+Voir `terraform/oidc.tf`. Extrait de la condition finale, rôle apply. Le `sub` est comparé en
+`StringEquals` (valeur exacte) et non en `StringLike`, parce qu'aucun joker n'est voulu : avec
+`StringLike`, un `*` ajouté plus tard élargirait la confiance en silence ; avec `StringEquals`, il
+resterait un caractère littéral. Le test négatif ci-dessous bascule donc l'opérateur **et** ajoute le
+`*`, ce qui reproduit le risque réel d'une modification malencontreuse.
 
 ```hcl
 condition {
-  test     = "StringLike"
+  test     = "StringEquals"
   variable = "token.actions.githubusercontent.com:sub"
   # Restreint strictement l'assomption du rôle aux jobs de CE dépôt
   # qui déclarent `environment: production`. Empêche toute PR, fork ou
@@ -165,13 +169,14 @@ Tests unitaires (hors ligne) :
 
 ![conftest verify — tests unitaires, 0 failures](./captures/oidc-tests-unitaires.png)
 
-Trust policies conformes sur un vrai state :
+Trust policies conformes sur un vrai state (16 contrôles `oidc`, 13 pour la simulation) :
 
-![Trust policies conformes — 6 tests, 6 passed](./captures/oidc-state-conforme.png)
+![Trust policies conformes — 0 failures](./captures/oidc-state-conforme.png)
 
-Refus volontaire du `sub` élargi à `:*` (2 violations) :
+Refus volontaire : opérateur basculé en `StringLike` et `sub` élargi à `:*` (4 violations : joker,
+`StringLike` sur les deux rôles, suffixe attendu absent) :
 
-![Refus du sub avec joker — 2 violations](./captures/oidc-refus-joker.png)
+![Refus : StringLike et sub élargi](./captures/oidc-refus-joker.png)
 
 #### Ce que LocalStack n'applique pas
 
@@ -244,7 +249,9 @@ Tests réalisés en local contre LocalStack (`terraform/examples`), un
 par un : décommenter/modifier la ressource visée pour violer une seule
 règle à la fois, `terraform plan` + `conftest test`, capturer le
 message, remettre en conformité, passer à la règle suivante. Résultat
-final après correction : `8 tests, 8 passed, 0 failures` ✅
+final après correction : `8 tests, 8 passed, 0 failures` ✅ (à l'époque ; la couverture a depuis
+été étendue, voir « Couverture étendue après revue » plus bas : **13 contrôles** aujourd'hui pour les
+mêmes 4 règles)
 
 | # | Règle violée | Ressource testée | Modification appliquée | Message de refus obtenu |
 |---|---|---|---|---|
@@ -288,7 +295,7 @@ pas vrai pour le cas le plus large.
 |---|---|---|---|---|
 | CICD-SEC-1 | Contrôle d'accès pipeline insuffisant | 🟡 Partiellement | `environment: production` avec reviewers obligatoires sur `apply` ; branche `main` protégée ; rôles OIDC plan/apply écrits avec conditions `sub` distinctes, contrôlés statiquement par `policies/oidc.rego` | Faute de compte AWS, l'enforcement IAM réel (OIDC + trust policy) n'a **jamais été exécuté en conditions réelles**, seulement contre LocalStack qui ne simule pas la validation des permissions — **risque résiduel assumé, priorité haute si migration vers un vrai compte** |
 | CICD-SEC-2 | Injection de code dans le pipeline | 🟢 Non | Toutes les actions épinglées par SHA de 40 caractères (pas de tag mutable) ; pas de `pull_request_target` utilisé | Un `github-script` avec du contenu de PR non filtré (ex : titre de PR injecté brut) resterait un vecteur si on l'ajoutait sans échappement — à surveiller si le pipeline évolue |
-| CICD-SEC-3 | Dépendances tierces non sécurisées | 🟡 Partiellement | `trivy config` scanne l'IaC ; actions pinnées par SHA | Aucun scan des dépendances applicatives (SCA) type `trivy fs` / Dependabot n'est branché dans ce pipeline — **risque résiduel assumé** |
+| CICD-SEC-3 | Dépendances tierces non sécurisées | 🟡 Partiellement | `trivy config` scanne l'IaC ; actions pinnées par SHA ; binaire Conftest téléchargé avec empreinte SHA-256 épinglée et vérifiée avant installation | Aucun scan des dépendances applicatives (SCA) type `trivy fs` / Dependabot n'est branché dans ce pipeline — **risque résiduel assumé** |
 | CICD-SEC-4 | Politique de flux PBAC/CI/CD faible | 🟡 Partiellement | Séparation stricte plan (lecture) / apply (écriture) via deux rôles OIDC distincts | Permissions limitées à EC2 et à une région ; écritures nommées une à une, scopées par ARN et par tag `ManagedBy=terraform`. Reste `ec2:Describe*` sur `*` (non scopable par ARN). **Jamais testées sur un vrai compte** : à valider avec IAM Access Analyzer — **risque résiduel assumé** |
 | CICD-SEC-5 | Configuration de build insuffisamment sécurisée | 🟢 Non | `permissions: {}` par défaut au niveau workflow, chaque job déclare le strict nécessaire | — |
 | CICD-SEC-6 | Nettoyage insuffisant du système hébergeant le build | ⚪ Non applicable directement | Runners GitHub-hosted, éphémères par nature (VM détruite après chaque job) | On ne maîtrise pas la preuve de destruction ; on fait confiance à GitHub. Pour un contexte plus sensible, des self-hosted runners avec durcissement explicite seraient préférables |

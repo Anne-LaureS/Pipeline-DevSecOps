@@ -1,11 +1,12 @@
 name: Terraform DevSecOps Pipeline
 
 on:
+  # Pas de paths-ignore sur les pull requests : les checks requis par le
+  # ruleset protect-main (qualite, plan) doivent TOUJOURS s'exécuter, sinon
+  # une PR de documentation resterait bloquée en « Expected ».
   pull_request:
     branches: [main]
-    paths-ignore:
-      - "**.md"
-      - "docs/**"
+  # Sur main, un merge de documentation ne déclenche ni run ni approbation.
   push:
     branches: [main]
     paths-ignore:
@@ -118,7 +119,11 @@ jobs:
       - name: Setup conftest
         run: |
           CONFTEST_VERSION="0.55.0"
-          curl -sL "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" -o conftest.tar.gz
+          # Empreinte SHA-256 épinglée (publiée dans checksums.txt de la release) :
+          # un binaire altéré ou remplacé fait échouer l'étape avant installation.
+          CONFTEST_SHA256="1f2c78cdd2ad6bc4cbbdce5ca3e0d15fdc7d10303a629a56118614089c311385"
+          curl -sSfL "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" -o conftest.tar.gz
+          echo "${CONFTEST_SHA256}  conftest.tar.gz" | sha256sum -c -
           tar xzf conftest.tar.gz conftest
           sudo mv conftest /usr/local/bin/
           conftest --version
