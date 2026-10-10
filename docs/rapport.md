@@ -104,7 +104,8 @@ l'ancien `sub`. Prérequis côté GitHub : reviewers obligatoires et
 Le test négatif ci-dessus n'est plus seulement décrit : il est rejoué
 par des règles Rego (`policies/oidc.rego`, tests unitaires dans
 `policies/oidc_test.rego`) qui contrôlent le contenu des trust
-policies **sans compte AWS** :
+policies (règles 1 à 5) et des permissions (règles 6 à 8) des rôles,
+**sans compte AWS** :
 
 | # | Règle | Détecte |
 |---|---|---|
@@ -159,10 +160,12 @@ Pour rendre observable l'*effet* des conditions malgré cela,
 (`Allow` et `Deny` explicite prioritaire ; `StringEquals`,
 `StringEqualsIgnoreCase`, `StringLike`, `StringNotEquals`,
 `StringNotLike` ; ET entre conditions, OU entre valeurs d'une clé)
-sur 8 jetons fictifs et vérifie la décision attendue pour
-chaque rôle : PR du dépôt → `plan` accepté ; `main` → `apply` accepté ;
-PR → `apply`, `main` → `plan`, branche quelconque → `apply`, fork,
-mauvaise audience : refusés. Sur le state avec `sub` élargi à `:*`, la
+sur 10 jetons fictifs et vérifie la décision attendue pour
+chaque rôle : PR du dépôt → `plan` accepté ; job de l'environment
+`production` → `apply` accepté ; sont refusés : PR → `apply`, push sur
+`main` → `plan`, push sur `main` **sans** environment → `apply`, autre
+environment → `apply`, branche quelconque → `apply`, fork (autre
+organisation) → `plan` et `apply`, mauvaise audience → `plan`. Sur le state avec `sub` élargi à `:*`, la
 simulation signale qu'un push sur `main` assumerait le rôle `plan` — le
 scénario d'attaque ci-dessus, désormais rejoué automatiquement.
 
