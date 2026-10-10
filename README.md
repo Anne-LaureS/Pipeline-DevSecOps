@@ -5,6 +5,7 @@
 ![LocalStack](https://img.shields.io/badge/LocalStack-AWS%20local-6E56CF?logo=amazonaws&logoColor=white)
 ![Trivy](https://img.shields.io/badge/Trivy-IaC%20scan-1904DA)
 ![Gitleaks](https://img.shields.io/badge/Gitleaks-secret%20scan-orange)
+![License: MIT](https://img.shields.io/badge/licence-MIT-green)
 [![Pipeline CI](https://github.com/Anne-LaureS/Pipeline-DevSecOps/actions/workflows/terraform.yml/badge.svg?branch=main)](https://github.com/Anne-LaureS/Pipeline-DevSecOps/actions/workflows/terraform.yml)
 
 ## 🛠️ Projet — IaC, IAM & Policy as Code
@@ -543,3 +544,10 @@ Risques résiduels connus :
 Ces choix et les risques qui en découlent sont détaillés dans la
 [partie 0](docs/rapport.md#partie-0) et l'[audit OWASP de la partie 4](docs/rapport.md#partie-4) du
 [rapport](docs/rapport.md).
+
+---
+
+## 📜 Licence
+
+Ce dépôt est publié sous licence [MIT](LICENSE) © 2026 Anne-LaureS : réutilisation libre, à condition de
+conserver la mention de copyright. Le logiciel est fourni « tel quel », sans garantie.
