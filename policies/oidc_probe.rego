@@ -15,7 +15,7 @@ import rego.v1
 
 # Paires (sub|aud) des scénarios de la simulation : les jetons à signer.
 warn_scenarios contains msg if {
-	some _, sc in oidc_sim.scenarios
+	some sc in oidc_sim.scenarios
 	msg := sprintf("%s|%s", [sc.sub, sc.aud])
 }
 

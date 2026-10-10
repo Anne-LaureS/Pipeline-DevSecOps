@@ -1,0 +1,27 @@
+# Configuration de Regal (linter Rego) : regal lint policies
+#
+# Règles désactivées, avec leur raison. Elles sont documentées plutôt que
+# silencieuses : aucune ne masque un défaut de logique (catégorie « bugs » : 0).
+rules:
+  idiomatic:
+    # Conftest 0.55 (OPA 0.67, version du CI) ne comprend pas l'interpolation
+    # `$"..."` : suivre cette règle casserait le pipeline.
+    prefer-string-interpolation:
+      level: ignore
+    # Conftest exige `package main` (ou un namespace choisi) quel que soit
+    # le dossier : le paquet ne peut pas refléter le chemin du fichier.
+    directory-package-mismatch:
+      level: ignore
+    # Ces fichiers ne sont pas des bibliothèques exposées : pas d'entrypoint.
+    no-defined-entrypoint:
+      level: ignore
+  imports:
+    # `data.expected_repo` et `data.probes` sont fournis par l'option --data de
+    # Conftest : Regal ne peut pas les résoudre statiquement (faux positifs).
+    unresolved-reference:
+      level: ignore
+  testing:
+    # Les tests partagent le paquet de la règle testée (accès direct aux
+    # fonctions et aux helpers) : convention volontaire.
+    test-outside-test-package:
+      level: ignore

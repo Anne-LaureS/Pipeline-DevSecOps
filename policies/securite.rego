@@ -19,11 +19,11 @@ import rego.v1
 # --- Helpers ---------------------------------------------------------
 
 is_create_or_update(rc) if {
-	rc.change.actions[_] == "create"
+	"create" in rc.change.actions
 }
 
 is_create_or_update(rc) if {
-	rc.change.actions[_] == "update"
+	"update" in rc.change.actions
 }
 
 # Liste de blocs d'un attribut ; vide si l'attribut est absent ou null
@@ -241,7 +241,7 @@ deny contains msg if {
 	is_create_or_update(rc)
 	tags := object.get(rc.change.after, "tags", null)
 	tags != null
-	missing := required_tags - {k | tags[k]}
+	missing := required_tags - object.keys(tags)
 	count(missing) > 0
 	msg := sprintf(
 		"SECURITE: la ressource '%s' n'a pas les etiquettes obligatoires : %v",

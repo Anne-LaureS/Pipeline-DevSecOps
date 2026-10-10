@@ -123,14 +123,14 @@ explicitly_denied(r, claims) if {
 }
 
 allowed(r, claims) if {
+	not explicitly_denied(r, claims)
 	some st in statements(r)
 	st.Effect == "Allow"
 	applies(st)
 	conditions_ok(st, claims)
-	not explicitly_denied(r, claims)
 }
 
-decision(r, claims) := true if allowed(r, claims)
+decision(r, claims) if allowed(r, claims)
 
 decision(r, claims) := false if not allowed(r, claims)
 
@@ -147,7 +147,7 @@ repo := data.expected_repo
 repo := m[0][1] if {
 	not data.expected_repo
 	some st in statements(roles_by_name["gha-terraform-apply"])
-	some _, conds in st.Condition
+	some conds in st.Condition
 	some v in as_array(conds[sprintf("%s:sub", [issuer])])
 	m := regex.find_all_string_submatch_n(`^repo:([^:*?]+/[^:*?]+):`, v, 1)
 	count(m) > 0

@@ -268,6 +268,9 @@ Résultat attendu : **93 tests unitaires**, 0 failure.
 
 ![conftest verify — 93 tests, 93 passed](docs/captures/oidc-tests-unitaires.png)
 
+**Qualité du Rego.** Les règles sont lintées avec [Regal](https://github.com/open-policy-agent/regal)
+(`regal lint policies`, configuration dans [`.regal/config.yaml`](.regal/config.yaml)).
+
 ### 2. Règles EC2 sur un plan
 
 ```bash
