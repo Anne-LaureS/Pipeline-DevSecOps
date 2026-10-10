@@ -88,10 +88,19 @@ if command -v conftest >/dev/null 2>&1; then
     conftest test state.json --policy "$ROOT/policies" --namespace oidc
 
     echo ""
+    echo "🧪 Simulation de la décision AWS (8 jetons fictifs : PR, main, fork, mauvaise audience...)"
+    conftest test state.json --policy "$ROOT/policies" --namespace oidc_sim
+
+    echo ""
     echo "🚨 Refus volontaire : on remplace ':pull_request' par ':*' (le cas du test négatif)"
     sed 's/:pull_request/:*/g' state.json > state_bad.json
     conftest test state_bad.json --policy "$ROOT/policies" --namespace oidc || \
       echo "👉 Refus attendu : une trust policy trop large est bloquée avant d'atteindre AWS."
+
+    echo ""
+    echo "🧪 Même state, vu par la simulation : que pourrait assumer un attaquant ?"
+    conftest test state_bad.json --policy "$ROOT/policies" --namespace oidc_sim || \
+      echo "👉 Avec le joker, un job hors pull_request assumerait le rôle plan."
 
     terraform destroy -input=false -auto-approve >/dev/null
   )
