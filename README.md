@@ -100,6 +100,11 @@ Résultat sur une pull request réelle (règles EC2, règles OIDC et simulation 
 
 ![Checks GitHub verts sur la PR : qualite et plan réussis, apply ignoré](docs/captures/ci-pr-checks-verts.png)
 
+Après le merge sur `main`, le job `apply` passe par l'environment `production` (toujours contre
+LocalStack) :
+
+![Run sur main : qualite et apply réussis, plan ignoré](docs/captures/ci-main-apply-production.png)
+
 ---
 
 ## 🔐 Conception IAM — pourquoi ce design
@@ -200,9 +205,9 @@ Tout se lance depuis la racine du dépôt.
 conftest verify --policy policies
 ```
 
-Résultat attendu : `0 failures` (36 tests au total).
+Résultat attendu :
 
-![conftest verify — tests unitaires des règles OIDC](docs/captures/oidc-tests-unitaires.png)
+![conftest verify — 36 tests, 36 passed](docs/captures/oidc-tests-unitaires.png)
 
 ### 2. Règles EC2 sur un plan
 
