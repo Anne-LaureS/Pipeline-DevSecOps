@@ -1,5 +1,6 @@
 # 🛡️ Pipeline DevSecOps de bout en bout — Rapport
 
+<a id="partie-0"></a>
 ## 📝 0. Note méthodologique — pourquoi LocalStack
 
 Ce projet n'utilise pas de compte AWS : je n'ai pas voulu en créer un
@@ -29,6 +30,7 @@ compte. Conséquences assumées, à lire en regard de la partie 4 :
 
 ---
 
+<a id="partie-1"></a>
 ## 🔐 1. Politique de confiance OIDC finale (commentée)
 
 Voir `terraform/oidc.tf`. Extrait de la condition finale, rôle apply :
@@ -86,6 +88,7 @@ branche `main` exigeant une review avant merge et environment
 `production` limité à `main` avec reviewers obligatoires, empêchant
 qu'un contributeur modifie seul les workflows qui déploient.
 
+<a id="evolution-sub-apply"></a>
 ### 🔄 Évolution de conception : le `sub` du rôle apply
 
 La première version de la condition du rôle `apply` visait
@@ -99,6 +102,7 @@ n'évalue pas les conditions. La condition vise désormais l'environment
 l'ancien `sub`. Prérequis côté GitHub : reviewers obligatoires et
 « Deployment branches » limitées à `main` sur cet environment.
 
+<a id="verification-automatisee"></a>
 ### 🤖 Vérification automatisée des trust policies
 
 Le test négatif ci-dessus n'est plus seulement décrit : il est rejoué
@@ -201,6 +205,7 @@ ignoré hors `main`) :
 
 ---
 
+<a id="partie-2"></a>
 ## 📸 2. Capture du commentaire de plan sur une pull request
 
 Commentaire posté automatiquement par le job `plan` sur la pull
@@ -211,6 +216,7 @@ LocalStack :
 
 ---
 
+<a id="partie-3"></a>
 ## 🚫 3. Messages de refus de politique
 
 Tests réalisés en local contre LocalStack (`terraform/examples`), un
@@ -233,6 +239,7 @@ masque pas les violations les unes derrière les autres.
 
 ---
 
+<a id="partie-4"></a>
 ## 🔍 4. Audit OWASP Top 10 CI/CD
 
 | # | Risque OWASP CI/CD | Présent ? | Contrôle en place | Risque résiduel / à faire |
@@ -263,6 +270,7 @@ masque pas les violations les unes derrière les autres.
 
 ---
 
+<a id="partie-5"></a>
 ## 📚 5. Dissertation — trois principes de Saltzer & Schroeder
 
 **🔒 Fail-safe defaults.** Le workflow déclare `permissions: {}` au

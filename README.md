@@ -8,6 +8,11 @@
 
 > 🛠️ **Projet — IaC, IAM & Policy as Code**
 
+> 📘 **Le rapport est le document de référence** : [`docs/rapport.md`](docs/rapport.md) explique la
+> démarche, les décisions de conception (et celles qui ont changé), les preuves capturées, l'audit
+> OWASP Top 10 CI/CD et les limites assumées. **Ce README est le mode d'emploi ; le rapport est
+> l'argumentaire.** [Aller directement aux parties du rapport ↓](#-le-rapport)
+
 ## 🧭 En 2 minutes
 
 **Le sujet.** Comment un pipeline GitHub Actions peut-il déployer de l'infrastructure sur AWS
@@ -23,6 +28,10 @@ qu'une configuration dangereuse est refusée avant d'arriver en production ?
    `production`.
 3. **Des règles écrites en code** (*policy as code*) qui bloquent une configuration non conforme,
    y compris une identité trop permissive.
+
+**Pour comprendre le « pourquoi » et pas seulement le « comment »**, lisez le
+[rapport](docs/rapport.md), en particulier l'[évolution de conception du rôle `apply`](docs/rapport.md#evolution-sub-apply)
+et l'[audit OWASP](docs/rapport.md#partie-4).
 
 **Ce qui est réel et ce qui ne l'est pas.** Il n'y a pas de compte AWS derrière ce projet : tout
 tourne contre **LocalStack**, un AWS émulé en local. LocalStack n'applique pas les conditions de
@@ -40,6 +49,7 @@ sécurité IAM (il accepte n'importe quel jeton, voir plus bas). La configuratio
 
 ## 📑 Sommaire
 
+0. [**Le rapport**](#-le-rapport) — démarche, preuves, audit, décisions
 1. [Glossaire](#-glossaire)
 2. [Prérequis](#-prérequis)
 3. [Ce que fait ce pipeline](#-ce-que-fait-ce-pipeline)
@@ -51,6 +61,27 @@ sécurité IAM (il accepte n'importe quel jeton, voir plus bas). La configuratio
 9. [Les règles sur les trust policies OIDC](#-les-5-règles-sur-les-trust-policies-oidc)
 10. [Ce que LocalStack n'applique pas, et la simulation](#-ce-que-localstack-napplique-pas--et-la-simulation)
 11. [Limites et risques assumés](#️-limites-et-risques-assumés)
+
+---
+
+## 📘 Le rapport
+
+[`docs/rapport.md`](docs/rapport.md) est le livrable principal : il documente **pourquoi** le dépôt est
+fait ainsi, avec les preuves.
+
+| Partie | Ce que vous y trouvez |
+|---|---|
+| [0 — Note méthodologique](docs/rapport.md#partie-0) | Pourquoi LocalStack, et ce que cela implique pour la confiance accordée aux résultats |
+| [1 — Politique OIDC](docs/rapport.md#partie-1) | Les conditions `sub` finales, le schéma d'architecture, le test négatif (scénario d'attaque détaillé) |
+| [1 — Évolution de conception](docs/rapport.md#evolution-sub-apply) | Pourquoi le `sub` du rôle `apply` vise l'environment et non `main`, et comment l'erreur a été trouvée |
+| [1 — Vérification automatisée](docs/rapport.md#verification-automatisee) | Les règles Rego, le constat LocalStack (il accepte n'importe quel jeton), la simulation et ses limites |
+| [2 — Plan commenté sur PR](docs/rapport.md#partie-2) | Capture du commentaire automatique de plan |
+| [3 — Messages de refus](docs/rapport.md#partie-3) | Les 4 règles EC2 testées négativement puis positivement |
+| [4 — Audit OWASP Top 10 CI/CD](docs/rapport.md#partie-4) | Dix risques, ce qui est en place, ce qui reste (risques résiduels assumés) |
+| [5 — Saltzer & Schroeder](docs/rapport.md#partie-5) | Fail-safe defaults, least privilege, complete mediation appliqués au dépôt |
+
+> 💡 **Le README dit ce que fait le dépôt et comment le rejouer ; le rapport dit pourquoi, ce qui a
+> été corrigé en route, et ce qui n'est pas prouvé.**
 
 ---
 
@@ -170,7 +201,7 @@ Le cœur de ce pipeline n'est pas Terraform, c'est le modèle d'accès qui l'ent
 │   ├── oidc_simulation.rego # simulation de la décision AssumeRoleWithWebIdentity (10 jetons)
 │   └── oidc_simulation_test.rego  # tests du moteur de simulation
 ├── docs/
-│   ├── rapport.md       # Rapport détaillé
+│   ├── rapport.md       # Rapport : démarche, preuves, audit, décisions
 │   ├── oidc-architecture.svg
 │   └── captures/            # Preuves visuelles
 ├── scripts/
@@ -429,14 +460,6 @@ Risques résiduels connus :
 - Les variables `github_org` / `github_repo` valent encore `VOTRE_ORG` / `VOTRE_REPO` : à renseigner
   avant tout vrai déploiement.
 
-Ces choix et les risques qui en découlent sont détaillés dans les parties 0 et 4 (audit OWASP Top 10
-CI/CD) du [rapport](docs/rapport.md).
-
----
-
-## 📄 Rapport détaillé
-
-👉 **[`docs/rapport.md`](docs/rapport.md)** — politique OIDC commentée, capture du
-commentaire de plan sur PR, 4 messages de refus de policy, vérification automatisée des trust
-policies, audit OWASP Top 10 CI/CD complet, et dissertation sur trois principes de Saltzer &
-Schroeder.
+Ces choix et les risques qui en découlent sont détaillés dans la
+[partie 0](docs/rapport.md#partie-0) et l'[audit OWASP de la partie 4](docs/rapport.md#partie-4) du
+[rapport](docs/rapport.md).
