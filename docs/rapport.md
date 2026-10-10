@@ -141,7 +141,7 @@ l'ancien `sub`. Prérequis côté GitHub : reviewers obligatoires et
 Le test négatif ci-dessus n'est plus seulement décrit : il est rejoué
 par des règles Rego (`policies/oidc.rego`, tests unitaires dans
 `policies/oidc_test.rego`) qui contrôlent le contenu des trust
-policies (règles 1 à 5, dont 2 bis et 5 bis) et des permissions (règles 6 à 10) des rôles,
+policies (règles 1 à 5, dont 2 bis et 5 bis) et des permissions (règles 6 à 11) des rôles,
 **sans compte AWS** :
 
 | # | Règle | Détecte |
@@ -159,8 +159,9 @@ policies (règles 1 à 5, dont 2 bis et 5 bis) et des permissions (règles 6 à 
 | 8 | `Resource "*"` réservé à la lecture | action d'écriture sur `Resource "*"` |
 | 9 | Pas de `NotAction` / `NotResource` | un `Allow` + `NotAction` autorise « presque tout » |
 | 10 | Pas de policy illisible | policy managée AWS, externe, `managed_policy_arns`, `inline_policy` |
+| 11 | Étiquetage toujours conditionné | `CreateTags` / `DeleteTags` sans condition : un job pourrait étiqueter une ressource pour l'inclure dans son périmètre |
 
-Les règles 6 à 10 examinent les policies **réellement attachées** à un
+Les règles 6 à 11 examinent les policies **réellement attachées** à un
 rôle assumable par GitHub (et non celles dont le nom porte un préfixe) ;
 une policy attachée qu'on ne peut pas lire (managée AWS, externe) est
 refusée. Cette portée a été élargie après que des contournements ont
@@ -176,11 +177,11 @@ refus volontaire du `sub` en `:*`.
 
 Tests unitaires (hors ligne) :
 
-![conftest verify en CI — 90 tests, 90 passed](./captures/oidc-tests-unitaires.png)
+![conftest verify en CI — tous les tests unitaires passent](./captures/oidc-tests-unitaires.png)
 
-Trust policies conformes sur un vrai state (16 contrôles `oidc`, 13 pour la simulation) :
+Trust policies conformes sur un vrai state (17 contrôles `oidc`, 13 pour la simulation) :
 
-![Trust policies conformes — 16 tests, 16 passed](./captures/oidc-state-conforme.png)
+![Trust policies conformes — 0 failures](./captures/oidc-state-conforme.png)
 
 Refus volontaire : opérateur basculé en `StringLike` et `sub` élargi à `:*` (4 violations : joker,
 `StringLike` sur les deux rôles, suffixe attendu absent) :
@@ -398,7 +399,7 @@ le code du workflow était modifié dans la PR elle-même (la condition
 **Ce qui a évolué** : le rôle `apply` avait des actions comme `ec2:*`,
 `s3:*`. Il n'a plus que les actions EC2 nécessaires, nommées une à une,
 sans S3, RDS ni `iam:PassRole` (la stack n'en a pas besoin), et les
-règles 6 à 10 de `oidc.rego` empêchent le retour en arrière.
+règles 6 à 11 de `oidc.rego` empêchent le retour en arrière.
 **Limite** : ces permissions n'ont jamais été exercées sur un vrai
 compte ; un rôle trop étroit échouerait au premier déploiement réel.
 

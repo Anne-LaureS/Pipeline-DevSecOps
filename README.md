@@ -140,6 +140,17 @@ Une fois approuvé, il s'exécute (toujours contre LocalStack) :
 Le cœur de ce pipeline n'est pas Terraform, c'est le modèle d'accès qui l'entoure. Détail dans
 [`terraform/oidc.tf`](terraform/oidc.tf) et dans le [rapport](docs/rapport.md) :
 
+**Deux principes IAM mis en pratique.** Ce dépôt applique concrètement deux principes centraux
+d'un programme IAM, et chacun est vérifié par du code plutôt que simplement déclaré :
+
+| Principe | Comment le dépôt l'applique | Ce qui le vérifie |
+|---|---|---|
+| **Moindre privilège** | deux rôles distincts (lecture pour `plan`, écriture pour `apply`) ; permissions EC2 nommées une à une, limitées à une région ; modification et étiquetage seulement sur les ressources `ManagedBy=terraform` ; ni `*`, ni `NotAction` | règles 6 à 11 avec un test négatif par contournement, et la simulation de la décision |
+| **Zéro secret permanent** | fédération OIDC : un jeton signé de courte durée est échangé contre des credentials temporaires (1 h maximum) ; aucune clé d'accès dans GitHub ni dans le dépôt | règles 1 à 5 bis, vrais jetons GitHub recoupés par OpenBao, Gitleaks bloquant en CI |
+
+> Limite : ces deux principes sont établis sur la conception et sur de vrais jetons, pas sur un
+> compte AWS réel (voir [Limites](#limites)).
+
 - **Zéro credential permanent** : fédération OIDC GitHub Actions ↔ AWS. Aucune clé d'accès stockée
   en secret GitHub — le job obtient des credentials STS valables 1 h maximum (`max_session_duration`).
 - **Deux rôles, pas un** : `gha-terraform-plan` (lecture) et `gha-terraform-apply` (écriture) sont
@@ -183,7 +194,7 @@ Le cœur de ce pipeline n'est pas Terraform, c'est le modèle d'accès qui l'ent
   et la simulation.
 - **Les risques résiduels sont assumés** (détail dans [Limites](#limites)) :
   permissions limitées à EC2 et à une région, écritures sur les seules ressources étiquetées
-  `ManagedBy=terraform` (règles 6 à 10 contre toute régression).
+  `ManagedBy=terraform` (règles 6 à 11 contre toute régression).
 
 ---
 
@@ -253,9 +264,9 @@ Tout se lance depuis la racine du dépôt.
 conftest verify --policy policies
 ```
 
-Résultat attendu : **90 tests unitaires**, 0 failure.
+Résultat attendu : **93 tests unitaires**, 0 failure.
 
-![conftest verify en CI — 90 tests, 90 passed](docs/captures/oidc-tests-unitaires.png)
+![conftest verify en CI — tous les tests unitaires passent](docs/captures/oidc-tests-unitaires.png)
 
 ### 2. Règles EC2 sur un plan
 
@@ -298,9 +309,9 @@ conftest test bad.json --policy "$REPO/policies" --namespace oidc_sim --data exp
 terraform destroy -auto-approve && cd "$REPO" && docker compose down
 ```
 
-Résultat attendu sur le cas conforme : **16 contrôles** (`oidc`) et **13** (`oidc_sim`), 0 failure.
+Résultat attendu sur le cas conforme : **17 contrôles** (`oidc`) et **13** (`oidc_sim`), 0 failure.
 
-![Trust policies conformes — 16 tests, 16 passed](docs/captures/oidc-state-conforme.png)
+![Trust policies conformes — 0 failures](docs/captures/oidc-state-conforme.png)
 
 Résultat attendu sur la violation volontaire : **4 violations** (`sub` en `:*`, `StringLike` sur les
 deux rôles, suffixe attendu absent) et 1 pour la simulation (un push sur `main` assumerait le rôle
@@ -355,8 +366,9 @@ permissions des rôles, sans compte AWS :
 | 8️⃣ | 🎯 `Resource "*"` réservé à la lecture | une action d'écriture sur `Resource "*"` |
 | 9️⃣ | 🚫 Pas de `NotAction` / `NotResource` | un `Allow` + `NotAction` autorise « presque tout » |
 | 🔟 | 🔍 Pas de policy qu'on ne peut pas lire | policy managée AWS (`AdministratorAccess`…), externe, `managed_policy_arns`, `inline_policy` |
+| 1️⃣1️⃣ | 🏷️ Étiquetage toujours conditionné | `ec2:CreateTags` / `ec2:DeleteTags` sans condition : un job pourrait étiqueter une ressource pour l'inclure dans son périmètre |
 
-**Ce qui est examiné.** Les règles 6 à 10 portent sur les policies **réellement attachées** à un rôle
+**Ce qui est examiné.** Les règles 6 à 11 portent sur les policies **réellement attachées** à un rôle
 assumable par GitHub (`aws_iam_role_policy_attachment`, `aws_iam_policy_attachment`,
 `aws_iam_role_policy`), et non sur les policies dont le nom commence par un préfixe : un nom ne prouve
 rien. Une policy attachée mais illisible est refusée, on ne valide pas ce qu'on ne voit pas.
@@ -524,10 +536,8 @@ Risques résiduels connus :
   déploiement. À valider avec IAM Access Analyzer (génération de policy depuis CloudTrail).
 - `ec2:Describe*` reste large (non scopable par ARN) et `DescribeInstanceAttribute` peut exposer le
   `userData` d'une instance : ne jamais y mettre de secret.
-- `ec2:CreateTags` n'est pas conditionné : un job `apply` pourrait étiqueter une ressource
-  `ManagedBy=terraform` pour l'inclure dans son périmètre.
 - Tout service ajouté (S3, RDS, IAM...) doit l'être avec ses actions nommées et ses ARN, pas en
-  joker : les règles 6 à 10 le vérifient.
+  joker : les règles 6 à 11 le vérifient.
 - Les variables `github_org`, `github_repo` et leurs identifiants numériques ont pour valeurs par
   défaut celles de **ce** dépôt. Pour un fork, les remplacer (`-var github_org=...`) : le `sub` de la
   trust policy doit être celui du jeton, sinon AWS refuse les jobs.
