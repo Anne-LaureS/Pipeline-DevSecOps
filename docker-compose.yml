@@ -14,3 +14,20 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+
+  # OpenBao (fork open source de Vault) en mode dev : sert uniquement au test
+  # différentiel des conditions OIDC (scripts/openbao-oidc-check.sh). Profil
+  # dédié : `docker compose up -d` ne le démarre pas, la démo reste inchangée.
+  #   docker compose --profile openbao up -d openbao
+  openbao:
+    profiles: ["openbao"]
+    image: openbao/openbao:2.7.1@sha256:6d2b93856e3fcf7b18ad855a0b51eaba474dc8b79cf554379ea32034797d2acf
+    container_name: openbao
+    command: server -dev
+    ports:
+      - "8200:8200"
+    environment:
+      - BAO_DEV_ROOT_TOKEN_ID=root # mode dev : jeton racine connu, usage local/CI éphémère
+      - BAO_DEV_LISTEN_ADDRESS=0.0.0.0:8200
+    cap_add:
+      - IPC_LOCK
