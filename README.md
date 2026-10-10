@@ -313,14 +313,18 @@ LocalStack 4.4.0 (jetons fictifs non signés) :
 | PR du bon dépôt → rôle `plan` | accepté | accepté |
 | **PR d'un autre dépôt** → rôle `plan` | **refusé** | **accepté** ❌ |
 | **PR du bon dépôt** → rôle `apply` | **refusé** | **accepté** ❌ |
+| **Mauvaise audience** (`aud` ≠ `sts.amazonaws.com`) → rôle `plan` | **refusé** | **accepté** ❌ |
+| **Jeton sans claim `sub`** → rôle `apply` | **refusé** | **accepté** ❌ |
 
 Un `AssumeRole` réussi sur LocalStack ne prouve donc rien sur la sécurité du design.
 
 <details>
 <summary>Reproduire le constat</summary>
 
+À lancer pendant l'étape 3 de [Tester pas à pas](#-tester-pas-à-pas), **avant** le
+`terraform destroy` (LocalStack démarré et `oidc.tf` appliqué). Nécessite l'`aws` CLI.
+
 ```bash
-# LocalStack démarré et oidc.tf appliqué (étape 3 ci-dessus)
 b64() { printf '%s' "$1" | base64 -w0 | tr '+/' '-_' | tr -d '='; }
 jwt() { echo "$(b64 '{"alg":"none","typ":"JWT"}').$(b64 "$1").c2ln"; }
 export AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test AWS_DEFAULT_REGION=eu-west-3
@@ -329,6 +333,10 @@ aws --endpoint-url=http://localhost:4566 sts assume-role-with-web-identity \
   --role-session-name test-session \
   --web-identity-token "$(jwt '{"aud":"sts.amazonaws.com","sub":"repo:attaquant/evil:pull_request"}')"
 # -> credentials renvoyés, alors qu'AWS refuserait
+
+# Variantes : remplacer le jeton par l'un de ces JSON (même résultat : accepté)
+#   {"aud":"autre.example.com","sub":"repo:VOTRE_ORG/VOTRE_REPO:pull_request"}   # mauvaise audience
+#   {"aud":"sts.amazonaws.com"}                                                  # sans sub, vers gha-terraform-apply
 ```
 </details>
 
