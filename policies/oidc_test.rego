@@ -32,7 +32,7 @@ federated := {"Federated": provider_arn}
 
 good_plan := role("gha-terraform-plan", trust(federated, "repo:acme/infra:pull_request", "sts.amazonaws.com"))
 
-good_apply := role("gha-terraform-apply", trust(federated, "repo:acme/infra:ref:refs/heads/main", "sts.amazonaws.com"))
+good_apply := role("gha-terraform-apply", trust(federated, "repo:acme/infra:environment:production", "sts.amazonaws.com"))
 
 has_msg(msgs, needle) if {
 	some m in msgs
@@ -78,7 +78,15 @@ test_plan_ne_doit_pas_accepter_main if {
 
 test_apply_ne_doit_pas_accepter_pull_request if {
 	bad := role("gha-terraform-apply", trust(federated, "repo:acme/infra:pull_request", "sts.amazonaws.com"))
-	has_msg(deny, ":ref:refs/heads/main") with input as state([bad])
+	has_msg(deny, ":environment:production") with input as state([bad])
+}
+
+# Régression : un job apply qui déclare `environment:` reçoit
+# sub=...:environment:<nom>, jamais ...:ref:refs/heads/main. Une condition
+# sur le ref refuserait donc ce job sur un vrai compte AWS.
+test_apply_sur_ref_main_est_signale if {
+	bad := role("gha-terraform-apply", trust(federated, "repo:acme/infra:ref:refs/heads/main", "sts.amazonaws.com"))
+	has_msg(deny, ":environment:production") with input as state([bad])
 }
 
 # --- Règle 4 : audience -----------------------------------------------

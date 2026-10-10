@@ -1,13 +1,13 @@
-# 🛡️ TP 5 — Pipeline DevSecOps de bout en bout
+# 🛡️ Pipeline DevSecOps de bout en bout — Rapport
 
 ## 📝 0. Note méthodologique — pourquoi LocalStack
 
-Aucun compte AWS n'a été fourni pour ce TP, et je n'ai pas voulu
-utiliser de compte personnel payant. J'ai donc fait tourner la partie
+Ce projet n'utilise pas de compte AWS : je n'ai pas voulu en créer un
+personnel et payant. J'ai donc fait tourner la partie
 "infrastructure exécutable" du pipeline (`terraform plan`/`apply`,
 `conftest`) contre **LocalStack** 🐳 (émulation locale de l'API AWS
 via Docker, gratuite, sans donnée réelle), plutôt que contre un vrai
-compte. Conséquences assumées, à lire en regard de la partie D :
+compte. Conséquences assumées, à lire en regard de la partie 4 :
 
 - ⚠️ Le provider OIDC GitHub → AWS et les deux rôles IAM
   (`terraform/oidc.tf`) sont écrits, commentés et corrects du point de
@@ -17,7 +17,7 @@ compte. Conséquences assumées, à lire en regard de la partie D :
   bloque effectivement un contexte non autorisé sur un vrai compte.
 - ⚠️ LocalStack Community n'émule pas l'application réelle des
   politiques IAM (permissions "à blanc" au niveau du moteur), donc le
-  test négatif de la partie A (élargir `sub` à `repo:*` et constater
+  test négatif de la partie 1 (élargir `sub` à `repo:*` et constater
   l'impact) a été traité comme une analyse écrite plutôt que comme une
   démonstration live. Il est depuis complété par un contrôle **statique**
   automatisé (voir la partie 1, « Vérification automatisée ») : cela
@@ -37,10 +37,12 @@ Voir `terraform/oidc.tf`. Extrait de la condition finale, rôle apply :
 condition {
   test     = "StringLike"
   variable = "token.actions.githubusercontent.com:sub"
-  # Restreint strictement l'assomption du rôle aux runs déclenchés par
-  # un push sur main de CE dépôt précis. Empêche toute PR, fork ou
-  # autre branche d'obtenir des droits d'écriture en production.
-  values   = ["repo:<ORG>/<REPO>:ref:refs/heads/main"]
+  # Restreint strictement l'assomption du rôle aux jobs de CE dépôt
+  # qui déclarent `environment: production`. Empêche toute PR, fork ou
+  # branche d'obtenir des droits d'écriture. NB : un job qui déclare un
+  # environment reçoit sub=...:environment:<nom> et non ...:ref:...,
+  # d'où cette condition (voir l'erratum ci-dessous).
+  values   = ["repo:<ORG>/<REPO>:environment:production"]
 }
 ```
 
@@ -51,12 +53,12 @@ values = ["repo:<ORG>/<REPO>:pull_request"]
 ```
 
 <figure>
-  <img src="oidc-architecture.svg" alt="Schéma : une pull request obtient un jeton OIDC avec sub=pull_request et ne peut assumer que le rôle de lecture ; un push sur main obtient sub=ref:refs/heads/main et peut seul assumer le rôle d'écriture. Le chemin PR vers le rôle d'écriture est explicitement refusé (sub ne correspond pas)." width="100%" />
-  <figcaption><i>Deux événements GitHub, deux conditions <code>sub</code> distinctes, deux rôles isolés — une PR ne peut
+  <img src="oidc-architecture.svg" alt="Schéma : une pull request obtient un jeton OIDC avec sub=pull_request et ne peut assumer que le rôle de lecture ; un job de l'environment production obtient sub=environment:production et peut seul assumer le rôle d'écriture. Le chemin PR vers le rôle d'écriture est explicitement refusé (sub ne correspond pas)." width="100%" />
+  <figcaption><i>Deux contextes GitHub, deux conditions <code>sub</code> distinctes, deux rôles isolés — une PR ne peut
   physiquement pas atteindre le rôle d'écriture, condition vérifiée par AWS lui-même à l'<code>AssumeRole</code>.</i></figcaption>
 </figure>
 
-### 🧪 Test négatif (partie A, point 3)
+### 🧪 Test négatif
 
 **Condition testée :** `repo:<ORG>/<REPO>:*`
 
@@ -79,9 +81,23 @@ values = ["repo:<ORG>/<REPO>:pull_request"]
   exemple), qui elle sera permanente.
 
 **✅ Remédiation appliquée :** condition restaurée à `pull_request` /
-`ref:refs/heads/main` (cf. fichier Terraform final), + protection de
-branche `main` exigeant une review avant merge, empêchant qu'un
-contributeur modifie seul les workflows qui tournent sur main.
+`environment:production` (cf. fichier Terraform final), + protection de
+branche `main` exigeant une review avant merge et environment
+`production` limité à `main` avec reviewers obligatoires, empêchant
+qu'un contributeur modifie seul les workflows qui déploient.
+
+### 🩹 Erratum : le `sub` du rôle apply
+
+La première version de la condition du rôle `apply` exigeait
+`repo:<ORG>/<REPO>:ref:refs/heads/main`. Or le job `apply` du workflow
+déclare `environment: production` : GitHub place alors
+`repo:<ORG>/<REPO>:environment:production` dans le claim `sub` (le ref
+n'y figure plus). Sur un vrai compte, AWS aurait donc **refusé** ce job.
+L'erreur était invisible tant que tout tournait contre LocalStack, qui
+n'évalue pas les conditions. La condition vise désormais l'environment
+`production`, et un test de régression (`oidc_test.rego`) signale
+l'ancien `sub`. Prérequis côté GitHub : reviewers obligatoires et
+« Deployment branches » limitées à `main` sur cet environment.
 
 ### 🤖 Vérification automatisée des trust policies
 
@@ -94,7 +110,7 @@ policies **sans compte AWS** :
 |---|---|---|
 | 1 | Pas de joker dans le `sub` | `repo:<ORG>/<REPO>:*` |
 | 2 | Dépôt explicite | `sub` absent, ou `repo:*/<REPO>:...` |
-| 3 | Événement attendu par rôle | `plan` ≠ `:pull_request`, `apply` ≠ `:ref:refs/heads/main` |
+| 3 | Contexte attendu par rôle | `plan` ≠ `:pull_request`, `apply` ≠ `:environment:production` |
 | 4 | Audience exacte | `aud` ≠ `sts.amazonaws.com` |
 | 5 | Pas de `Principal "*"` | trust policy ouverte à toute identité |
 
@@ -178,7 +194,7 @@ LocalStack :
 
 ---
 
-## 🚫 3. Messages de refus de politique (partie C)
+## 🚫 3. Messages de refus de politique
 
 Tests réalisés en local contre LocalStack (`terraform/examples`), un
 par un : décommenter/modifier la ressource visée pour violer une seule
@@ -204,7 +220,7 @@ masque pas les violations les unes derrière les autres.
 
 | # | Risque OWASP CI/CD | Présent ? | Contrôle en place | Risque résiduel / à faire |
 |---|---|---|---|---|
-| CICD-SEC-1 | Contrôle d'accès pipeline insuffisant | 🟡 Partiellement | `environment: production` avec reviewers obligatoires sur `apply` ; branche `main` protégée ; rôles OIDC plan/apply écrits avec conditions `sub` distinctes, contrôlés statiquement par `policies/oidc.rego` | Faute de compte AWS fourni, l'enforcement IAM réel (OIDC + trust policy) n'a **jamais été exécuté en conditions réelles**, seulement contre LocalStack qui ne simule pas la validation des permissions — **risque résiduel assumé, priorité haute si migration vers un vrai compte** |
+| CICD-SEC-1 | Contrôle d'accès pipeline insuffisant | 🟡 Partiellement | `environment: production` avec reviewers obligatoires sur `apply` ; branche `main` protégée ; rôles OIDC plan/apply écrits avec conditions `sub` distinctes, contrôlés statiquement par `policies/oidc.rego` | Faute de compte AWS, l'enforcement IAM réel (OIDC + trust policy) n'a **jamais été exécuté en conditions réelles**, seulement contre LocalStack qui ne simule pas la validation des permissions — **risque résiduel assumé, priorité haute si migration vers un vrai compte** |
 | CICD-SEC-2 | Injection de code dans le pipeline | 🟢 Non | Toutes les actions épinglées par SHA de 40 caractères (pas de tag mutable) ; pas de `pull_request_target` utilisé | Un `github-script` avec du contenu de PR non filtré (ex : titre de PR injecté brut) resterait un vecteur si on l'ajoutait sans échappement — à surveiller si le pipeline évolue |
 | CICD-SEC-3 | Dépendances tierces non sécurisées | 🟡 Partiellement | `trivy config` scanne l'IaC ; actions pinnées par SHA | Aucun scan des dépendances applicatives (SCA) type `trivy fs` / Dependabot n'est branché dans ce pipeline — **risque résiduel assumé** |
 | CICD-SEC-4 | Politique de flux PBAC/CI/CD faible | 🟡 Partiellement | Séparation stricte plan (lecture) / apply (écriture) via deux rôles OIDC distincts | Le rôle `apply` utilise encore `resources = ["*"]` sur certaines actions (ex : `ec2:*`) faute de temps pour scoper précisément par ARN/tag — **risque résiduel assumé** |
@@ -246,11 +262,12 @@ lecture seule, `apply` en écriture, chacun avec une condition `sub`
 distincte) applique le moindre privilège au niveau de l'identité :
 une pull request ne peut jamais obtenir de droits d'écriture, même si
 le code du workflow était modifié dans la PR elle-même (la condition
-`sub` empêche l'assomption du rôle apply hors du contexte `main`).
+`sub` empêche l'assomption du rôle apply hors de l'environment
+`production`).
 **La violation** : le rôle `apply` a des actions comme `ec2:*`, `s3:*`
 — une granularité de type "read scoped to five actions" comme sur le
 rôle plan n'a pas été reproduite côté écriture, par manque de temps
-pour énumérer précisément les actions nécessaires à ce TP.
+pour énumérer précisément les actions nécessaires à ce projet.
 
 **🔁 Complete mediation.** Chaque `apply` sur `main` repasse par le job
 `qualite` (fmt, gitleaks, trivy) et par `conftest` dans le job `plan`

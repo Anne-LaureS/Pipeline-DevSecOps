@@ -20,7 +20,7 @@ aud_key := "token.actions.githubusercontent.com:aud"
 # Suffixe du `sub` attendu pour chaque rôle (nom du rôle -> événement GitHub).
 expected_sub_suffix := {
 	"gha-terraform-plan": ":pull_request",
-	"gha-terraform-apply": ":ref:refs/heads/main",
+	"gha-terraform-apply": ":environment:production",
 }
 
 # --- Helpers ---------------------------------------------------------
@@ -100,7 +100,8 @@ deny contains msg if {
 }
 
 # ======================================================================
-# Règle 3 — plan : uniquement pull_request ; apply : uniquement main
+# Règle 3 — plan : uniquement pull_request ; apply : uniquement l'environment
+# production (un job qui déclare `environment:` reçoit sub=...:environment:<nom>)
 # ======================================================================
 
 deny contains msg if {

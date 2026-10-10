@@ -71,12 +71,12 @@ jobs:
   ##########################################################
   # JOB 2 — Plan : terraform plan + conftest + commentaire PR
   #
-  # NB pédagogique : faute de compte AWS fourni, ce job tourne contre
+  # NB : faute de compte AWS, ce job tourne contre
   # LocalStack (émulation locale, aucune donnée/coût réel) plutôt que
   # d'assumer le rôle OIDC gha-terraform-plan. La logique OIDC réelle
   # (terraform/oidc.tf) reste écrite, commentée et revue, mais n'est
   # PAS exercée en conditions live ici — assumé comme limite explicite
-  # en partie D du rapport (IAM non testé en conditions réelles).
+  # en partie 4 du rapport (IAM non testé en conditions réelles).
   ##########################################################
   plan:
     needs: qualite
@@ -143,7 +143,7 @@ jobs:
           terraform apply -input=false -auto-approve
           terraform show -json > state.json
           conftest test state.json --policy "$GITHUB_WORKSPACE/policies" --namespace oidc
-          # Simulation de la décision AWS : 8 jetons fictifs contre ces rôles.
+          # Simulation de la décision AWS : 10 jetons fictifs contre ces rôles.
           conftest test state.json --policy "$GITHUB_WORKSPACE/policies" --namespace oidc_sim
 
       - name: Upload plan artifact (pour le job apply)
@@ -172,9 +172,9 @@ jobs:
   # (approbation manuelle configurée côté GitHub Settings >
   # Environments > production > Required reviewers)
   #
-  # NB pédagogique : comme le job plan, tourne contre LocalStack faute
-  # de compte AWS fourni. Le rôle OIDC gha-terraform-apply n'est donc
-  # pas exercé ici non plus — cf. note du job plan et partie D du
+  # NB : comme le job plan, tourne contre LocalStack faute
+  # de compte AWS. Le rôle OIDC gha-terraform-apply n'est donc
+  # pas exercé ici non plus — cf. note du job plan et partie 4 du
   # rapport. Sur un vrai compte AWS, il suffirait de remplacer le
   # service localstack + provider.tf/examples par le provider.tf
   # "réel" (endpoints AWS standards) et de réactiver l'étape
@@ -226,7 +226,7 @@ jobs:
       # plus strict, on ferait tourner plan ET apply dans le MÊME run
       # déclenché par le push sur main, et apply téléchargerait alors
       # l'artefact produit par plan dans ce run — voir note rapport
-      # partie D sur ce risque résiduel (dérive plan/apply).
+      # partie 5 sur ce risque résiduel (dérive plan/apply).
       - name: Terraform apply (contre LocalStack)
         working-directory: terraform/examples
         run: terraform apply -input=false -auto-approve

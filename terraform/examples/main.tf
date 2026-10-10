@@ -2,7 +2,7 @@
 # un plan JSON que conftest vérifie contre policies/securite.rego.
 #
 # Cet état (ci-dessous) est CONFORME aux 4 règles. Pour le test négatif
-# obligatoire (partie C, point 3), commentez/décommentez un bloc à la
+# obligatoire (voir rapport, partie 3), commentez/décommentez un bloc à la
 # fois indiqué "### VIOLATION", relancez `terraform plan` + `conftest
 # test`, capturez le message de refus, puis remettez la version
 # conforme avant de passer à la règle suivante.

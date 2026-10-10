@@ -17,6 +17,12 @@ variable "github_repo" {
   default     = "VOTRE_REPO"
 }
 
+variable "github_environment" {
+  description = "Environment GitHub référencé par le job apply (environment: ...)"
+  type        = string
+  default     = "production"
+}
+
 # --- Fournisseur d'identité OIDC -----------------------------------------
 # Le thumbprint ci-dessous est l'empreinte SHA-1 du dernier certificat de la
 # chaîne servie par token.actions.githubusercontent.com (racine ISRG « Root YR »,
@@ -66,7 +72,7 @@ data "aws_iam_policy_document" "plan_trust" {
       values   = ["repo:${var.github_org}/${var.github_repo}:pull_request"]
     }
 
-    # --- TEST NÉGATIF (partie A, point 3) ---
+    # --- TEST NÉGATIF (voir rapport, partie 1) ---
     # Pour le test, remplacer temporairement la condition ci-dessus par :
     #   values = ["repo:${var.github_org}/${var.github_repo}:*"]
     # puis "terraform apply", vérifier que get-caller-identity fonctionne
@@ -117,8 +123,16 @@ resource "aws_iam_role_policy_attachment" "plan_readonly_attach" {
 
 ############################################
 # Rôle 2 — gha-terraform-apply (écriture)
-# Condition sub stricte : uniquement les push
-# sur la branche main de CE dépôt.
+# Condition sub stricte : uniquement les jobs de CE dépôt
+# qui référencent l'environment GitHub "production".
+#
+# Pourquoi l'environment et non ref:refs/heads/main : dès qu'un job
+# déclare `environment:`, GitHub remplace le claim sub par
+# repo:<ORG>/<REPO>:environment:<NOM> (le ref n'y figure plus). Une
+# condition sur ref:refs/heads/main refuserait donc le job apply.
+# Prérequis côté GitHub (Settings > Environments > production) :
+# reviewers obligatoires ET "Deployment branches" limité à main, sinon
+# n'importe quelle branche pourrait cibler cet environment.
 ############################################
 
 data "aws_iam_policy_document" "apply_trust" {
@@ -140,7 +154,7 @@ data "aws_iam_policy_document" "apply_trust" {
     condition {
       test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_org}/${var.github_repo}:ref:refs/heads/main"]
+      values   = ["repo:${var.github_org}/${var.github_repo}:environment:${var.github_environment}"]
     }
   }
 }
@@ -167,8 +181,8 @@ data "aws_iam_policy_document" "apply_write" {
       "iam:PassRole"
     ]
     resources = ["*"]
-    # NB : dans un vrai rendu, restreindre "resources" par ARN/tag plutôt
-    # que "*" — assumé comme risque résiduel si non fait (cf. partie D).
+    # NB : dans un vrai déploiement, restreindre "resources" par ARN/tag plutôt
+    # que "*" — assumé comme risque résiduel si non fait (cf. partie 4 du rapport).
   }
 }
 
