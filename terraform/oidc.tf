@@ -72,8 +72,11 @@ data "aws_iam_policy_document" "plan_trust" {
     }
 
     # --- Condition stricte (état normal) ---
+    # StringEquals et non StringLike : la valeur est exacte, aucun joker n'est
+    # voulu. Avec StringLike, un `*` ajouté plus tard élargirait la confiance
+    # en silence ; avec StringEquals il resterait un caractère littéral.
     condition {
-      test     = "StringLike"
+      test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
       values   = ["repo:${var.github_org}/${var.github_repo}:pull_request"]
     }
@@ -155,7 +158,7 @@ data "aws_iam_policy_document" "apply_trust" {
     }
 
     condition {
-      test     = "StringLike"
+      test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
       values   = ["repo:${var.github_org}/${var.github_repo}:environment:${var.github_environment}"]
     }

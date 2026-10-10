@@ -100,6 +100,25 @@ deny contains msg if {
 }
 
 # ======================================================================
+# Règle 2 bis — le sub se compare avec StringEquals (valeur exacte)
+# StringLike (ou tout opérateur à motif) laisse un `*` futur élargir la
+# confiance en silence ; StringEquals le traiterait comme un littéral.
+# ======================================================================
+
+deny contains msg if {
+	some r in iam_roles
+	github_oidc_role(r)
+	some st in oidc_statements(r)
+	some op, conds in st.Condition
+	op != "StringEquals"
+	sub_key in object.keys(conds)
+	msg := sprintf(
+		"SECURITE: le role '%s' compare le sub avec %s : utiliser StringEquals (aucun joker attendu)",
+		[r.address, op],
+	)
+}
+
+# ======================================================================
 # Règle 3 — plan : uniquement pull_request ; apply : uniquement l'environment
 # production (un job qui déclare `environment:` reçoit sub=...:environment:<nom>)
 # ======================================================================
