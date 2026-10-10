@@ -5,6 +5,7 @@
 ![LocalStack](https://img.shields.io/badge/LocalStack-AWS%20local-6E56CF?logo=amazonaws&logoColor=white)
 ![Trivy](https://img.shields.io/badge/Trivy-IaC%20scan-1904DA)
 ![Gitleaks](https://img.shields.io/badge/Gitleaks-secret%20scan-orange)
+[![Pipeline CI](https://github.com/Anne-LaureS/Pipeline-DevSecOps/actions/workflows/terraform.yml/badge.svg?branch=main)](https://github.com/Anne-LaureS/Pipeline-DevSecOps/actions/workflows/terraform.yml)
 
 ## 🛠️ Projet — IaC, IAM & Policy as Code
 
@@ -146,13 +147,11 @@ d'un programme IAM, et chacun est vérifié par du code plutôt que simplement d
 | Principe | Comment le dépôt l'applique | Ce qui le vérifie |
 |---|---|---|
 | **Moindre privilège** | deux rôles distincts (lecture pour `plan`, écriture pour `apply`) ; permissions EC2 nommées une à une, limitées à une région ; modification et étiquetage seulement sur les ressources `ManagedBy=terraform` ; ni `*`, ni `NotAction` | règles 6 à 11 avec un test négatif par contournement, et la simulation de la décision |
-| **Zéro secret permanent** | fédération OIDC : un jeton signé de courte durée est échangé contre des credentials temporaires (1 h maximum) ; aucune clé d'accès dans GitHub ni dans le dépôt | règles 1 à 5 bis, vrais jetons GitHub recoupés par OpenBao, Gitleaks bloquant en CI |
+| **Zéro secret permanent** | fédération OIDC : un jeton signé de courte durée est échangé contre des credentials temporaires (1 h maximum, `max_session_duration`) ; aucune clé d'accès stockée en secret GitHub ni dans le dépôt | règles 1 à 5 bis, vrais jetons GitHub recoupés par OpenBao, Gitleaks bloquant en CI |
 
 > Limite : ces deux principes sont établis sur la conception et sur de vrais jetons, pas sur un
 > compte AWS réel (voir [Limites](#limites)).
 
-- **Zéro credential permanent** : fédération OIDC GitHub Actions ↔ AWS. Aucune clé d'accès stockée
-  en secret GitHub — le job obtient des credentials STS valables 1 h maximum (`max_session_duration`).
 - **Deux rôles, pas un** : `gha-terraform-plan` (lecture) et `gha-terraform-apply` (écriture) sont
   des identités IAM distinctes. Un job déclenché par une pull request reçoit un jeton dont le `sub`
   est `…:pull_request` : la trust policy du rôle d'écriture ne l'accepte pas, même si le workflow
@@ -508,8 +507,7 @@ docker compose --profile openbao down
 >   script n'accepte donc que des conditions `StringEquals`, où les deux sont équivalentes. On
 >   valide la logique des claims, pas l'évaluateur d'AWS.
 > - Il ne modélise ni les `Deny` explicites, ni les opérateurs de condition, ni les SCP.
-> - La limite « jamais exercé sur un vrai AWS » reste vraie. La formulation exacte est :
->   **simulé et recoupé par un second moteur**.
+> - La limite générale (pas de compte AWS réel) est détaillée dans [Limites](#limites).
 
 ---
 
