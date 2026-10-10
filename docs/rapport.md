@@ -168,6 +168,11 @@ refusée. Cette portée a été élargie après que des contournements ont
 été identifiés et testés : `NotAction`, `AdministratorAccess` attachée,
 policy au nom anodin, joker partiel. Chacun a désormais un test négatif.
 
+**Qualité du Rego.** Les fichiers de règles et de tests sont lintés avec
+[Regal](https://github.com/open-policy-agent/regal) (`regal lint policies`).
+Sa configuration, avec la raison de chaque règle de style désactivée, est dans
+`.regal/config.yaml`.
+
 Particularité : ces règles lisent le **state** (`terraform show -json`
 après un apply contre LocalStack) et non le plan, car
 `assume_role_policy` y est inconnu avant l'apply (il dépend de l'ARN du
