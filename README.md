@@ -93,7 +93,7 @@ Aucun compte AWS ni compte LocalStack n'est nécessaire.
 | 📐 Plan | Terraform + LocalStack | Génère et affiche le plan d'infrastructure |
 | 🚦 Policy as Code | Conftest / OPA | Bloque toute ressource non conforme (4 règles) et toute trust policy OIDC trop large (5 règles + simulation) |
 | 💬 Revue | Commentaire automatique sur PR | Le plan est visible avant merge |
-| ✅ Apply | Environment `production` | Approbation manuelle selon la configuration de l'environment |
+| ✅ Apply | Environment `production` | Approbation manuelle requise (reviewer obligatoire, déploiement limité à `main`) |
 | 🔑 Authentification | OIDC GitHub ↔ AWS | Conçue et vérifiée statiquement ; **non exercée** (pas de compte AWS), le CI utilise LocalStack |
 
 Résultat sur une pull request réelle (règles EC2, règles OIDC et simulation incluses) :
@@ -133,6 +133,9 @@ Le cœur de ce pipeline n'est pas Terraform, c'est le modèle d'accès qui l'ent
   régression. En contrepartie, l'environment doit être configuré côté GitHub (*Settings →
   Environments → production*) avec des **reviewers obligatoires** et des **Deployment branches
   limitées à `main`** : sans cela, n'importe quelle branche pourrait cibler cet environment.
+  Cette configuration est en place sur ce dépôt (reviewer obligatoire, branches limitées à `main`,
+  administrateurs non exemptés), et `main` n'accepte que des pull requests (ruleset `protect-main`).
+  Ces réglages vivent dans GitHub et non dans le dépôt : ils sont à reproduire sur un fork.
 - **Le test négatif fait partie de la démarche** : le [rapport](docs/rapport.md) documente ce qui se
   passerait si la condition `sub` était élargie à `repo:<ORG>/<REPO>:*` (n'importe quel contexte du
   dépôt pourrait assumer le rôle) ; ce scénario est désormais rejoué automatiquement par les règles
