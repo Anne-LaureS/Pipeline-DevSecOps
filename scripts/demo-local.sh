@@ -84,7 +84,7 @@ if command -v conftest >/dev/null 2>&1; then
     terraform show -json > state.json
 
     echo ""
-    echo "✅ Trust policies conformes (sub strict, aud exact, pas de Principal *) :"
+    echo "✅ Trust policies et permissions conformes (sub strict, aud exact, moindre privilège EC2) :"
     conftest test state.json --policy "$ROOT/policies" --namespace oidc
 
     echo ""

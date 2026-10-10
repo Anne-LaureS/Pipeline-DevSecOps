@@ -123,3 +123,64 @@ test_role_non_oidc_ignore if {
 	}]}
 	count(deny) == 0 with input as state([role("ec2-role", doc)])
 }
+
+# --- Règles 6 à 8 : permissions des rôles ------------------------------
+
+policy_res(name, stmts) := {
+	"type": "aws_iam_policy",
+	"address": sprintf("aws_iam_policy.%s", [name]),
+	"values": {"name": name, "policy": json.marshal({"Version": "2012-10-17", "Statement": stmts})},
+}
+
+read_ec2 := {
+	"Effect": "Allow",
+	"Action": ["ec2:Describe*"],
+	"Resource": "*",
+}
+
+create_ec2 := {
+	"Effect": "Allow",
+	"Action": ["ec2:RunInstances", "ec2:CreateSecurityGroup"],
+	"Resource": "arn:aws:ec2:eu-west-3:*:*",
+}
+
+test_permissions_conformes_aucune_violation if {
+	plan := policy_res("gha-terraform-plan-readonly", [read_ec2])
+	apply := policy_res("gha-terraform-apply-write", [read_ec2, create_ec2])
+	count(deny) == 0 with input as state([plan, apply])
+}
+
+test_action_joker_de_service_refusee if {
+	bad := policy_res("gha-terraform-apply-write", [{"Effect": "Allow", "Action": ["ec2:*"], "Resource": "arn:aws:ec2:eu-west-3:*:*"}])
+	has_msg(deny, "joker de service entier") with input as state([bad])
+}
+
+test_action_etoile_seule_refusee if {
+	bad := policy_res("gha-terraform-apply-write", [{"Effect": "Allow", "Action": "*", "Resource": "arn:aws:ec2:eu-west-3:*:*"}])
+	has_msg(deny, "joker de service entier") with input as state([bad])
+}
+
+test_lecture_seule_ne_couvre_pas_s3_getobject if {
+	bad := policy_res("gha-terraform-plan-readonly", [{"Effect": "Allow", "Action": ["s3:Get*"], "Resource": "*"}])
+	has_msg(deny, "s3:getobject") with input as state([bad])
+}
+
+test_lecture_seule_ne_couvre_pas_logs_getlogevents if {
+	bad := policy_res("gha-terraform-plan-readonly", [{"Effect": "Allow", "Action": ["logs:Get*"], "Resource": "*"}])
+	has_msg(deny, "logs:getlogevents") with input as state([bad])
+}
+
+test_lecture_bornee_s3_bucket_acceptee if {
+	ok := policy_res("gha-terraform-plan-readonly", [{"Effect": "Allow", "Action": ["s3:GetBucket*", "s3:ListBucket"], "Resource": "*"}])
+	not has_msg(deny, "lecture de contenu") with input as state([ok])
+}
+
+test_ecriture_sur_resource_etoile_refusee if {
+	bad := policy_res("gha-terraform-apply-write", [{"Effect": "Allow", "Action": ["ec2:TerminateInstances"], "Resource": "*"}])
+	has_msg(deny, "sur Resource '*'") with input as state([bad])
+}
+
+test_lecture_sur_resource_etoile_acceptee if {
+	ok := policy_res("gha-terraform-apply-write", [read_ec2])
+	not has_msg(deny, "sur Resource '*'") with input as state([ok])
+}

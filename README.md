@@ -91,7 +91,7 @@ Aucun compte AWS ni compte LocalStack n'est nécessaire.
 |---|---|---|
 | 🧹 Qualité | `terraform fmt`, Gitleaks, Trivy | Contrôles bloquants avant tout `plan` |
 | 📐 Plan | Terraform + LocalStack | Génère et affiche le plan d'infrastructure |
-| 🚦 Policy as Code | Conftest / OPA | Bloque toute ressource non conforme (4 règles) et toute trust policy OIDC trop large (5 règles + simulation) |
+| 🚦 Policy as Code | Conftest / OPA | Bloque toute ressource non conforme (4 règles) et toute trust policy ou permission OIDC trop large (8 règles + simulation) |
 | 💬 Revue | Commentaire automatique sur PR | Le plan est visible avant merge |
 | ✅ Apply | Environment `production` | Approbation manuelle requise (reviewer obligatoire, déploiement limité à `main`) |
 | 🔑 Authentification | OIDC GitHub ↔ AWS | Conçue et vérifiée statiquement ; **non exercée** (pas de compte AWS), le CI utilise LocalStack |
@@ -128,9 +128,9 @@ Le cœur de ce pipeline n'est pas Terraform, c'est le modèle d'accès qui l'ent
 
 - **Pourquoi l'environment pour `apply` et non la branche `main`** : dès qu'un job déclare
   `environment:`, GitHub remplace le `sub` par `…:environment:<nom>` (le ref n'y figure plus). Une
-  condition sur `ref:refs/heads/main` aurait donc **refusé** le job `apply`. Cette erreur de
-  conception avait été écrite initialement ; elle est corrigée et couverte par un test de
-  régression. En contrepartie, l'environment doit être configuré côté GitHub (*Settings →
+  condition sur `ref:refs/heads/main` aurait donc **refusé** le job `apply`. La première
+  version de ce dépôt visait le ref ; la condition a évolué et un test de régression couvre
+  l'ancien `sub`. En contrepartie, l'environment doit être configuré côté GitHub (*Settings →
   Environments → production*) avec des **reviewers obligatoires** et des **Deployment branches
   limitées à `main`** : sans cela, n'importe quelle branche pourrait cibler cet environment.
   Cette configuration est en place sur ce dépôt (reviewer obligatoire, branches limitées à `main`,
@@ -141,7 +141,8 @@ Le cœur de ce pipeline n'est pas Terraform, c'est le modèle d'accès qui l'ent
   dépôt pourrait assumer le rôle) ; ce scénario est désormais rejoué automatiquement par les règles
   et la simulation.
 - **Les risques résiduels sont assumés** (détail dans [Limites](#️-limites-et-risques-assumés)) :
-  `resources = ["*"]` sur le rôle `apply`, et `s3:Get*` sur `*` côté `plan`.
+  permissions limitées à EC2 et à une région, écritures sur les seules ressources étiquetées
+  `ManagedBy=terraform` (règles 6 à 8 contre toute régression).
 
 ---
 
@@ -157,8 +158,8 @@ Le cœur de ce pipeline n'est pas Terraform, c'est le modèle d'accès qui l'ent
 │   └── examples/            # Ressources de démo testées contre LocalStack
 ├── policies/
 │   ├── securite.rego        # 4 règles de sécurité sur le plan (Conftest/OPA)
-│   ├── oidc.rego            # 5 règles sur les trust policies (lues dans le state)
-│   ├── oidc_test.rego       # 12 tests unitaires de ces règles (hors ligne)
+│   ├── oidc.rego            # 8 règles : trust policies et permissions (lues dans le state)
+│   ├── oidc_test.rego       # 20 tests unitaires de ces règles (hors ligne)
 │   ├── oidc_simulation.rego # simulation de la décision AssumeRoleWithWebIdentity (10 jetons)
 │   └── oidc_simulation_test.rego  # 24 tests du moteur de simulation
 ├── docs/
@@ -210,7 +211,9 @@ conftest verify --policy policies
 
 Résultat attendu :
 
-![conftest verify — 36 tests, 36 passed](docs/captures/oidc-tests-unitaires.png)
+![conftest verify — tests unitaires, 0 failures](docs/captures/oidc-tests-unitaires.png)
+
+*(44 tests au total à ce jour.)*
 
 ### 2. Règles EC2 sur un plan
 
@@ -274,10 +277,10 @@ Chacune a été testée **négativement** (violation volontaire → message de r
 
 ---
 
-## 🔑 Les 5 règles sur les trust policies OIDC
+## 🔑 Les 8 règles sur les rôles OIDC (trust policies et permissions)
 
-[`policies/oidc.rego`](policies/oidc.rego) vérifie le **contenu** des trust policies, sans compte
-AWS :
+[`policies/oidc.rego`](policies/oidc.rego) vérifie le **contenu** des trust policies et des
+permissions des rôles, sans compte AWS :
 
 | # | Règle | Détecte |
 |---|---|---|
@@ -286,6 +289,9 @@ AWS :
 | 3️⃣ | 🔀 Contexte attendu par rôle | `plan` ≠ `:pull_request`, ou `apply` ≠ `:environment:production` |
 | 4️⃣ | 🎫 Audience exacte | `aud` différent de `sts.amazonaws.com` |
 | 5️⃣ | 👤 Pas de `Principal "*"` | trust policy ouverte à toute identité |
+| 6️⃣ | 🧱 Pas d'action joker de service | `ec2:*`, `s3:*`, `*` dans une policy `gha-terraform-*` |
+| 7️⃣ | 📖 Lecture seule vraiment en lecture | `s3:Get*` ou `logs:Get*` (couvrent `GetObject`, `GetLogEvents`) dans la policy `plan` |
+| 8️⃣ | 🎯 `Resource "*"` réservé à la lecture | une action d'écriture sur `Resource "*"` |
 
 **Particularité** : ces règles lisent le **state** (`terraform show -json` après un apply sur
 LocalStack) et non le plan. Dans un plan, `assume_role_policy` dépend de l'ARN du provider OIDC, qui
@@ -374,11 +380,18 @@ tout coût.
   [`oidc-check.yml`](.github/workflows/oidc-check.yml), à lancer à la main, est prévu pour un vrai
   compte (il échoue tant que `ACCOUNT_ID` n'est pas renseigné).
 
-**Risques résiduels de moindre privilège** (écarts connus, non corrigés faute de temps) :
+**Moindre privilège.** Les permissions sont limitées à ce que la stack gère (EC2 : Security Group +
+instance), à une région, avec écritures sur les seules ressources étiquetées `ManagedBy=terraform`.
+Risques résiduels connus :
 
-- Le rôle `apply` utilise `resources = ["*"]` (ex. `ec2:*`, `s3:*`) : à scoper par ARN ou par tag.
-- Le rôle `plan` est « lecture seule » mais `s3:Get*` sur `*` permet de **lire le contenu de tous
-  les objets** de tous les buckets : à restreindre à `s3:GetBucket*` et aux seuls buckets utiles.
+- **Jamais testées sur un vrai compte** : un rôle `apply` trop étroit échouerait au premier vrai
+  déploiement. À valider avec IAM Access Analyzer (génération de policy depuis CloudTrail).
+- `ec2:Describe*` reste large (non scopable par ARN) et `DescribeInstanceAttribute` peut exposer le
+  `userData` d'une instance : ne jamais y mettre de secret.
+- `ec2:CreateTags` n'est pas conditionné : un job `apply` pourrait étiqueter une ressource
+  `ManagedBy=terraform` pour l'inclure dans son périmètre.
+- Tout service ajouté (S3, RDS, IAM...) doit l'être avec ses actions nommées et ses ARN, pas en
+  joker : les règles 6 à 8 le vérifient.
 - Les variables `github_org` / `github_repo` valent encore `VOTRE_ORG` / `VOTRE_REPO` : à renseigner
   avant tout vrai déploiement.
 
