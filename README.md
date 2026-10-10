@@ -70,6 +70,8 @@ Le cœur de ce pipeline n'est pas Terraform, c'est le modèle d'accès qui l'ent
 ├── docs/
 │   ├── tp5-rapport.md        # Rapport complet (livrable principal)
 │   └── captures/             # Preuves visuelles (commentaire de plan, etc.)
+├── scripts/
+│   └── demo-local.sh         # Démo locale : LocalStack + apply (option : cleanup)
 ├── .trivyignore              # Risques acceptés, justifiés et tracés
 ├── docker-compose.yml        # LocalStack pour tester en local
 └── .gitignore
