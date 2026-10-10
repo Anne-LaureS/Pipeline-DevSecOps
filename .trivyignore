@@ -11,11 +11,12 @@
 # pertinent ici — Trivy n'a pas cette granularité port par port.
 AVD-AWS-0107
 
-# AVD-AWS-0057 : les rôles IAM gha-terraform-apply / gha-terraform-plan
-# (terraform/oidc.tf) utilisent encore des actions larges (ec2:*, s3:*,
-# ec2:Describe*, iam:Get*...) sur resources = ["*"]. Risque résiduel
-# documenté explicitement dans docs/rapport.md (CICD-SEC-4) : le
-# scope IAM devrait être resserré par ARN/tag avant tout usage en
-# production. Accepté pour le périmètre de ce projet, faute de temps pour
-# énumérer précisément chaque action et ressource nécessaire.
+# AVD-AWS-0057 : les policies des rôles gha-terraform-apply / gha-terraform-plan
+# (terraform/oidc.tf) utilisent des actions à joker (ec2:Describe*) sur
+# resources = ["*"]. Accepté : les actions Describe* ne se scopent pas par
+# ARN (limitation d'AWS), elles sont bornées à une région par condition, et
+# les écritures sont nommées une à une, limitées par ARN et par tag
+# ManagedBy=terraform (voir docs/rapport.md, CICD-SEC-4). Les règles 6 à 8
+# de policies/oidc.rego interdisent tout retour à ec2:* / s3:* ou à une
+# écriture sur Resource "*".
 AVD-AWS-0057

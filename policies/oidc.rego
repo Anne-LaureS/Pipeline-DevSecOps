@@ -153,3 +153,72 @@ deny contains msg if {
 		[r.address],
 	)
 }
+
+# ======================================================================
+# Règles 6 à 8 — Permissions des rôles gha-terraform-* (moindre privilège)
+# Lues dans le state : aws_iam_policy.values.policy (document JSON).
+# ======================================================================
+
+managed_policies contains p if {
+	some p in input.values.root_module.resources
+	p.type == "aws_iam_policy"
+	startswith(p.values.name, "gha-terraform-")
+}
+
+policy_statements(p) := as_array(json.unmarshal(p.values.policy).Statement)
+
+# Actions qui donnent accès à du CONTENU (données, journaux, secrets) :
+# interdites à une policy « lecture seule ».
+data_read_actions := {
+	"s3:getobject",
+	"logs:getlogevents",
+	"secretsmanager:getsecretvalue",
+	"ssm:getparameter",
+	"kms:decrypt",
+}
+
+action_covers(pattern, action) if {
+	regex.match(sprintf("^%s$", [replace(lower(pattern), "*", ".*")]), action)
+}
+
+# Règle 6 — pas d'action joker de service entier (s3:*, ec2:*, *)
+deny contains msg if {
+	some p in managed_policies
+	some st in policy_statements(p)
+	st.Effect == "Allow"
+	some a in as_array(st.Action)
+	regex.match(`^(\*|[A-Za-z0-9-]+:\*)$`, a)
+	msg := sprintf(
+		"SECURITE: la policy '%s' autorise '%s' (joker de service entier)",
+		[p.values.name, a],
+	)
+}
+
+# Règle 7 — la policy lecture seule ne doit pas couvrir de lecture de contenu
+deny contains msg if {
+	some p in managed_policies
+	p.values.name == "gha-terraform-plan-readonly"
+	some st in policy_statements(p)
+	st.Effect == "Allow"
+	some a in as_array(st.Action)
+	some d in data_read_actions
+	action_covers(a, d)
+	msg := sprintf(
+		"SECURITE: la policy lecture seule '%s' autorise '%s', qui couvre la lecture de contenu (%s)",
+		[p.values.name, a, d],
+	)
+}
+
+# Règle 8 — Resource "*" réservé aux actions de lecture (Describe/List/Get)
+deny contains msg if {
+	some p in managed_policies
+	some st in policy_statements(p)
+	st.Effect == "Allow"
+	"*" in as_array(st.Resource)
+	some a in as_array(st.Action)
+	not regex.match(`^[a-z0-9-]+:(describe|list|get)`, lower(a))
+	msg := sprintf(
+		"SECURITE: la policy '%s' autorise l'action d'ecriture '%s' sur Resource '*'",
+		[p.values.name, a],
+	)
+}

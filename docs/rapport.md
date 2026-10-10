@@ -41,7 +41,7 @@ condition {
   # qui déclarent `environment: production`. Empêche toute PR, fork ou
   # branche d'obtenir des droits d'écriture. NB : un job qui déclare un
   # environment reçoit sub=...:environment:<nom> et non ...:ref:...,
-  # d'où cette condition (voir l'erratum ci-dessous).
+  # d'où cette condition (voir « Évolution de conception » ci-dessous).
   values   = ["repo:<ORG>/<REPO>:environment:production"]
 }
 ```
@@ -86,9 +86,9 @@ branche `main` exigeant une review avant merge et environment
 `production` limité à `main` avec reviewers obligatoires, empêchant
 qu'un contributeur modifie seul les workflows qui déploient.
 
-### 🩹 Erratum : le `sub` du rôle apply
+### 🔄 Évolution de conception : le `sub` du rôle apply
 
-La première version de la condition du rôle `apply` exigeait
+La première version de la condition du rôle `apply` visait
 `repo:<ORG>/<REPO>:ref:refs/heads/main`. Or le job `apply` du workflow
 déclare `environment: production` : GitHub place alors
 `repo:<ORG>/<REPO>:environment:production` dans le claim `sub` (le ref
@@ -102,7 +102,7 @@ l'ancien `sub`. Prérequis côté GitHub : reviewers obligatoires et
 ### 🤖 Vérification automatisée des trust policies
 
 Le test négatif ci-dessus n'est plus seulement décrit : il est rejoué
-par des règles Rego (`policies/oidc.rego`, 11 tests unitaires dans
+par des règles Rego (`policies/oidc.rego`, tests unitaires dans
 `policies/oidc_test.rego`) qui contrôlent le contenu des trust
 policies **sans compte AWS** :
 
@@ -113,6 +113,9 @@ policies **sans compte AWS** :
 | 3 | Contexte attendu par rôle | `plan` ≠ `:pull_request`, `apply` ≠ `:environment:production` |
 | 4 | Audience exacte | `aud` ≠ `sts.amazonaws.com` |
 | 5 | Pas de `Principal "*"` | trust policy ouverte à toute identité |
+| 6 | Pas d'action joker de service | `ec2:*`, `s3:*`, `*` dans une policy `gha-terraform-*` |
+| 7 | Lecture seule vraiment en lecture | `s3:Get*`, `logs:Get*` dans la policy `plan` |
+| 8 | `Resource "*"` réservé à la lecture | action d'écriture sur `Resource "*"` |
 
 Particularité : ces règles lisent le **state** (`terraform show -json`
 après un apply contre LocalStack) et non le plan, car
@@ -123,7 +126,7 @@ refus volontaire du `sub` en `:*`.
 
 Tests unitaires (hors ligne) :
 
-![conftest verify — 11 tests, 11 passed](./captures/oidc-tests-unitaires.png)
+![conftest verify — tests unitaires, 0 failures](./captures/oidc-tests-unitaires.png)
 
 Trust policies conformes sur un vrai state :
 
@@ -223,7 +226,7 @@ masque pas les violations les unes derrière les autres.
 | CICD-SEC-1 | Contrôle d'accès pipeline insuffisant | 🟡 Partiellement | `environment: production` avec reviewers obligatoires sur `apply` ; branche `main` protégée ; rôles OIDC plan/apply écrits avec conditions `sub` distinctes, contrôlés statiquement par `policies/oidc.rego` | Faute de compte AWS, l'enforcement IAM réel (OIDC + trust policy) n'a **jamais été exécuté en conditions réelles**, seulement contre LocalStack qui ne simule pas la validation des permissions — **risque résiduel assumé, priorité haute si migration vers un vrai compte** |
 | CICD-SEC-2 | Injection de code dans le pipeline | 🟢 Non | Toutes les actions épinglées par SHA de 40 caractères (pas de tag mutable) ; pas de `pull_request_target` utilisé | Un `github-script` avec du contenu de PR non filtré (ex : titre de PR injecté brut) resterait un vecteur si on l'ajoutait sans échappement — à surveiller si le pipeline évolue |
 | CICD-SEC-3 | Dépendances tierces non sécurisées | 🟡 Partiellement | `trivy config` scanne l'IaC ; actions pinnées par SHA | Aucun scan des dépendances applicatives (SCA) type `trivy fs` / Dependabot n'est branché dans ce pipeline — **risque résiduel assumé** |
-| CICD-SEC-4 | Politique de flux PBAC/CI/CD faible | 🟡 Partiellement | Séparation stricte plan (lecture) / apply (écriture) via deux rôles OIDC distincts | Le rôle `apply` utilise encore `resources = ["*"]` sur certaines actions (ex : `ec2:*`) faute de temps pour scoper précisément par ARN/tag — **risque résiduel assumé** |
+| CICD-SEC-4 | Politique de flux PBAC/CI/CD faible | 🟡 Partiellement | Séparation stricte plan (lecture) / apply (écriture) via deux rôles OIDC distincts | Permissions limitées à EC2 et à une région ; écritures nommées une à une, scopées par ARN et par tag `ManagedBy=terraform`. Reste `ec2:Describe*` sur `*` (non scopable par ARN). **Jamais testées sur un vrai compte** : à valider avec IAM Access Analyzer — **risque résiduel assumé** |
 | CICD-SEC-5 | Configuration de build insuffisamment sécurisée | 🟢 Non | `permissions: {}` par défaut au niveau workflow, chaque job déclare le strict nécessaire | — |
 | CICD-SEC-6 | Nettoyage insuffisant du système hébergeant le build | ⚪ Non applicable directement | Runners GitHub-hosted, éphémères par nature (VM détruite après chaque job) | On ne maîtrise pas la preuve de destruction ; on fait confiance à GitHub. Pour un contexte plus sensible, des self-hosted runners avec durcissement explicite seraient préférables |
 | CICD-SEC-7 | Accès non contrôlé aux systèmes de gestion de configuration (SCM) | 🟡 Partiellement | Protection de branche `main`, review obligatoire | Pas d'exigence de commits signés (GPG/Sigstore) ni de règle "linear history" — **risque résiduel assumé** |
@@ -235,8 +238,9 @@ masque pas les violations les unes derrière les autres.
 > `qualite` sur une vraie pull request, Trivy a effectivement bloqué le
 > pipeline sur deux constats — le port 443 ouvert à 0.0.0.0/0 (attendu
 > pour un service web public) et les wildcards IAM
-> `ec2:*`/`ec2:Describe*` sur `resources = ["*"]` (déjà identifiés
-> ci-dessus comme CICD-SEC-4). Plutôt que de baisser la sévérité du
+> `ec2:*`/`ec2:Describe*` sur `resources = ["*"]` (identifiés
+> ci-dessus comme CICD-SEC-4 ; depuis, les permissions ont été
+> resserrées, il ne reste que `ec2:Describe*`). Plutôt que de baisser la sévérité du
 > scan ou de le rendre non bloquant, ces deux constats ont été
 > explicitement documentés et acceptés via un fichier `.trivyignore`
 > avec justification (voir `.trivyignore` à la racine du dépôt) — ce
@@ -252,10 +256,10 @@ niveau global : par défaut, aucun job n'a le moindre droit, chaque
 job doit explicitement lister ce dont il a besoin (`id-token: write`,
 `pull-requests: write`...). C'est l'application directe du principe :
 en cas d'oubli, l'échec est vers *moins* de privilèges, jamais vers
-plus. **La violation encore présente** : la politique IAM du rôle
-`apply` utilise `resources = ["*"]` sur plusieurs actions — le défaut
-y est "large" faute d'avoir scopé chaque ARN, ce qui contredit
-l'esprit du principe au niveau IAM même si GitHub Actions le respecte.
+plus. **Au niveau IAM**, le défaut était initialement "large"
+(`resources = ["*"]`, `ec2:*`) ; il a été resserré : actions nommées,
+ARN limités à la région, écritures conditionnées au tag
+`ManagedBy=terraform`. Reste `ec2:Describe*` sur `*`, non scopable.
 
 **🎯 Least privilege.** La séparation en deux rôles OIDC (`plan` en
 lecture seule, `apply` en écriture, chacun avec une condition `sub`
@@ -264,10 +268,12 @@ une pull request ne peut jamais obtenir de droits d'écriture, même si
 le code du workflow était modifié dans la PR elle-même (la condition
 `sub` empêche l'assomption du rôle apply hors de l'environment
 `production`).
-**La violation** : le rôle `apply` a des actions comme `ec2:*`, `s3:*`
-— une granularité de type "read scoped to five actions" comme sur le
-rôle plan n'a pas été reproduite côté écriture, par manque de temps
-pour énumérer précisément les actions nécessaires à ce projet.
+**Ce qui a évolué** : le rôle `apply` avait des actions comme `ec2:*`,
+`s3:*`. Il n'a plus que les actions EC2 nécessaires, nommées une à une,
+sans S3, RDS ni `iam:PassRole` (la stack n'en a pas besoin), et les
+règles 6 à 8 de `oidc.rego` empêchent le retour en arrière.
+**Limite** : ces permissions n'ont jamais été exercées sur un vrai
+compte ; un rôle trop étroit échouerait au premier déploiement réel.
 
 **🔁 Complete mediation.** Chaque `apply` sur `main` repasse par le job
 `qualite` (fmt, gitleaks, trivy) et par `conftest` dans le job `plan`

@@ -17,6 +17,12 @@ variable "github_repo" {
   default     = "VOTRE_REPO"
 }
 
+variable "aws_region" {
+  description = "Région AWS dans laquelle les rôles ont le droit d'agir"
+  type        = string
+  default     = "eu-west-3"
+}
+
 variable "github_environment" {
   description = "Environment GitHub référencé par le job apply (environment: ...)"
   type        = string
@@ -88,26 +94,23 @@ resource "aws_iam_role" "gha_terraform_plan" {
   max_session_duration = 3600 # 1h : durée de vie courte, cohérente avec un job CI
 }
 
-# Politique en lecture seule restreinte : ReadOnlyAccess est volontairement
-# large ; ici on préfère une politique dédiée limitée aux services réellement
-# utilisés (à adapter à votre stack). Remplacez par ReadOnlyAccess si votre
-# stack est trop hétérogène pour justifier une liste explicite.
+# Politique en lecture seule, limitée à ce que la stack gère réellement (EC2).
+# Volontairement SANS s3:Get* (lirait le contenu de tous les objets),
+# logs:Get* (lirait le contenu des journaux) ni iam:/rds: : à ajouter avec
+# la ressource correspondante, jamais « au cas où ».
+# sts:GetCallerIdentity n'a besoin d'aucune permission IAM.
 data "aws_iam_policy_document" "plan_readonly" {
   statement {
-    sid    = "ReadOnlyScoped"
-    effect = "Allow"
-    actions = [
-      "ec2:Describe*",
-      "iam:Get*",
-      "iam:List*",
-      "s3:Get*",
-      "s3:List*",
-      "rds:Describe*",
-      "logs:Describe*",
-      "logs:Get*",
-      "sts:GetCallerIdentity"
-    ]
-    resources = ["*"]
+    sid       = "ReadEc2"
+    effect    = "Allow"
+    actions   = ["ec2:Describe*"]
+    resources = ["*"] # les actions Describe* ne se scopent pas par ARN
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestedRegion"
+      values   = [var.aws_region]
+    }
   }
 }
 
@@ -165,24 +168,66 @@ resource "aws_iam_role" "gha_terraform_apply" {
   max_session_duration = 3600
 }
 
-# Droits d'écriture limités aux services utilisés (exemple : EC2 + S3 + IAM
-# scoping restreint). À adapter précisément à votre TF state.
+# Droits d'écriture limités à EC2 (Security Group + instance), dans UNE région.
+# - lecture : Describe* (non scopable par ARN) ;
+# - création : actions nommées une à une, ARN limités à la région ;
+# - modification / suppression : uniquement sur les ressources étiquetées
+#   ManagedBy=terraform (condition ec2:ResourceTag), donc jamais sur une
+#   ressource créée hors Terraform.
+# Pas de s3:*, rds:*, iam:PassRole : la stack n'en a pas besoin. Les ajouter
+# avec la ressource qui les exige. NON testé sur un vrai compte AWS : valider
+# avec IAM Access Analyzer (génération de policy depuis CloudTrail).
 data "aws_iam_policy_document" "apply_write" {
   statement {
-    sid    = "WriteScoped"
+    sid       = "ReadEc2"
+    effect    = "Allow"
+    actions   = ["ec2:Describe*"]
+    resources = ["*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestedRegion"
+      values   = [var.aws_region]
+    }
+  }
+
+  statement {
+    sid    = "CreateEc2"
     effect = "Allow"
     actions = [
-      "ec2:*",
-      "s3:*",
-      "rds:CreateDBInstance",
-      "rds:ModifyDBInstance",
-      "rds:DeleteDBInstance",
-      "rds:Describe*",
-      "iam:PassRole"
+      "ec2:RunInstances",
+      "ec2:CreateSecurityGroup",
+      "ec2:CreateTags",
     ]
-    resources = ["*"]
-    # NB : dans un vrai déploiement, restreindre "resources" par ARN/tag plutôt
-    # que "*" — assumé comme risque résiduel si non fait (cf. partie 4 du rapport).
+    resources = ["arn:aws:ec2:${var.aws_region}:*:*"]
+  }
+
+  statement {
+    sid    = "ManageTaggedEc2"
+    effect = "Allow"
+    actions = [
+      "ec2:TerminateInstances",
+      "ec2:StopInstances",
+      "ec2:StartInstances",
+      "ec2:ModifyInstanceAttribute",
+      "ec2:ModifyInstanceMetadataOptions",
+      "ec2:DeleteSecurityGroup",
+      "ec2:AuthorizeSecurityGroupIngress",
+      "ec2:AuthorizeSecurityGroupEgress",
+      "ec2:RevokeSecurityGroupIngress",
+      "ec2:RevokeSecurityGroupEgress",
+      "ec2:ModifySecurityGroupRules",
+      "ec2:UpdateSecurityGroupRuleDescriptionsIngress",
+      "ec2:UpdateSecurityGroupRuleDescriptionsEgress",
+      "ec2:DeleteTags",
+    ]
+    resources = ["arn:aws:ec2:${var.aws_region}:*:*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "ec2:ResourceTag/ManagedBy"
+      values   = ["terraform"]
+    }
   }
 }
 
