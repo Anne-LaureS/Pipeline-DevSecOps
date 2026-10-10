@@ -173,7 +173,80 @@ jobs:
             });
 
   ##########################################################
-  # JOB 3 — Apply : uniquement sur main, environment protégé
+  # JOB 3 — Jetons réels : test différentiel OpenBao / simulation Rego
+  #
+  # LocalStack accepte n'importe quel jeton. Ici, OpenBao (fork open source de
+  # Vault) vérifie la signature du jeton OIDC émis par GitHub et compare ses
+  # claims sub / aud aux valeurs de terraform/oidc.tf, lues dans le state ; ses
+  # décisions sont confrontées à celles de policies/oidc_simulation.rego.
+  # Cela recoupe la logique des claims avec de vrais jetons ; cela ne prouve
+  # pas le comportement d'AWS (voir README, section LocalStack).
+  # Ignoré pour les PR venant d'un fork : GitHub n'y délivre pas de jeton OIDC.
+  ##########################################################
+  jetons-reels:
+    needs: qualite
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+    services:
+      localstack:
+        image: localstack/localstack:4.4.0
+        ports:
+          - 4566:4566
+        options: >-
+          --health-cmd "curl -f http://localhost:4566/_localstack/health"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: State des rôles OIDC (apply contre LocalStack)
+        run: |
+          WORKDIR="$(mktemp -d)"
+          cp terraform/oidc.tf terraform/examples/provider.tf "$WORKDIR/"
+          cd "$WORKDIR"
+          terraform init -input=false
+          terraform apply -input=false -auto-approve \
+            -var "github_org=${GITHUB_REPOSITORY%%/*}" \
+            -var "github_repo=${GITHUB_REPOSITORY#*/}"
+          terraform show -json > "$GITHUB_WORKSPACE/state.json"
+
+      - name: Setup conftest (binaire vérifié par empreinte SHA-256)
+        run: |
+          CONFTEST_VERSION="0.55.0"
+          CONFTEST_SHA256="1f2c78cdd2ad6bc4cbbdce5ca3e0d15fdc7d10303a629a56118614089c311385"
+          curl -sSfL "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" -o conftest.tar.gz
+          echo "${CONFTEST_SHA256}  conftest.tar.gz" | sha256sum -c -
+          tar xzf conftest.tar.gz conftest
+          sudo mv conftest /usr/local/bin/
+
+      - name: Démarrer OpenBao (image épinglée par empreinte dans docker-compose.yml)
+        run: docker compose --profile openbao up -d openbao
+
+      # Test différentiel : OpenBao et la simulation Rego évaluent les mêmes
+      # jetons contre les mêmes rôles (construits depuis le state). Un
+      # désaccord signale un défaut dans l'un des deux moteurs.
+      - name: Jetons synthétiques (autre dépôt, main, environment, audience)
+        env:
+          EXPECTED_REPO: ${{ github.repository }}
+        run: ./scripts/openbao-oidc-check.sh state.json --local
+
+      - name: Vrais jetons GitHub (signature vérifiée via le JWKS de GitHub)
+        env:
+          EXPECTED_REPO: ${{ github.repository }}
+        run: ./scripts/openbao-oidc-check.sh state.json --github
+
+  ##########################################################
+  # JOB 4 — Apply : uniquement sur main, environment protégé
   # (approbation manuelle configurée côté GitHub Settings >
   # Environments > production > Required reviewers)
   #
