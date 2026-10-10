@@ -237,7 +237,7 @@ conftest verify --policy policies
 
 Résultat attendu :
 
-![conftest verify — tous les tests unitaires passent](docs/captures/oidc-tests-unitaires.png)
+![conftest verify — 85 tests, 85 passed](docs/captures/oidc-tests-unitaires.png)
 
 ### 2. Règles EC2 sur un plan
 
@@ -253,7 +253,7 @@ cd ../..
 
 Résultat attendu :
 
-![conftest sur la config EC2 — 0 failures](docs/captures/conftest-ec2-conforme.png)
+![conftest sur la config EC2 — 13 contrôles, 13 passed](docs/captures/conftest-ec2-conforme.png)
 
 ### 3. Trust policies OIDC sur un state, avec refus volontaire
 
