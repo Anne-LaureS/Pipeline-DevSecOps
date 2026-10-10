@@ -100,10 +100,14 @@ Résultat sur une pull request réelle (règles EC2, règles OIDC et simulation 
 
 ![Checks GitHub verts sur la PR : qualite et plan réussis, apply ignoré](docs/captures/ci-pr-checks-verts.png)
 
-Après le merge sur `main`, le job `apply` passe par l'environment `production` (toujours contre
-LocalStack) :
+Après le merge sur `main`, le job `apply` attend l'approbation du reviewer de l'environment
+`production` :
 
-![Run sur main : qualite et apply réussis, plan ignoré](docs/captures/ci-main-apply-production.png)
+![Approbation manuelle du déploiement sur l'environment production](docs/captures/approbation-production.png)
+
+Une fois approuvé, il s'exécute (toujours contre LocalStack) :
+
+![Run sur main : qualite et apply réussis après approbation, plan ignoré](docs/captures/ci-main-apply-production.png)
 
 ---
 
@@ -211,9 +215,7 @@ conftest verify --policy policies
 
 Résultat attendu :
 
-![conftest verify — tests unitaires, 0 failures](docs/captures/oidc-tests-unitaires.png)
-
-*(44 tests au total à ce jour.)*
+![conftest verify — 44 tests, 44 passed](docs/captures/oidc-tests-unitaires.png)
 
 ### 2. Règles EC2 sur un plan
 
