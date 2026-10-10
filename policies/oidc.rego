@@ -46,11 +46,11 @@ github_oidc_role(r) if {
 # Toutes les valeurs d'une clé de condition, quel que soit l'opérateur
 # (StringEquals, StringLike...) et qu'elle soit chaîne ou liste.
 claim_values(st, key) := {v |
-	some _, conds in st.Condition
+	some conds in st.Condition
 	some v in as_array(conds[key])
 }
 
-oidc_statements(r) := [st |
+github_statements(r) := [st |
 	some st in statements(r)
 	some p in as_array(st.Principal.Federated)
 	contains(p, "token.actions.githubusercontent.com")
@@ -63,7 +63,7 @@ oidc_statements(r) := [st |
 deny contains msg if {
 	some r in iam_roles
 	github_oidc_role(r)
-	some st in oidc_statements(r)
+	some st in github_statements(r)
 	some sub in claim_values(st, sub_key)
 	regex.match(`[*?]`, sub)
 	msg := sprintf(
@@ -79,7 +79,7 @@ deny contains msg if {
 deny contains msg if {
 	some r in iam_roles
 	github_oidc_role(r)
-	some st in oidc_statements(r)
+	some st in github_statements(r)
 	some sub in claim_values(st, sub_key)
 	not regex.match(`^repo:[^/*?:]+/[^/*?:]+:`, sub)
 	msg := sprintf(
@@ -91,7 +91,7 @@ deny contains msg if {
 deny contains msg if {
 	some r in iam_roles
 	github_oidc_role(r)
-	some st in oidc_statements(r)
+	some st in github_statements(r)
 	count(claim_values(st, sub_key)) == 0
 	msg := sprintf(
 		"SECURITE: le role '%s' n'a aucune condition sur le sub : tout depot GitHub pourrait l'assumer",
@@ -108,7 +108,7 @@ deny contains msg if {
 deny contains msg if {
 	some r in iam_roles
 	github_oidc_role(r)
-	some st in oidc_statements(r)
+	some st in github_statements(r)
 	some op, conds in st.Condition
 	op != "StringEquals"
 	sub_key in object.keys(conds)
@@ -127,7 +127,7 @@ deny contains msg if {
 	some r in iam_roles
 	github_oidc_role(r)
 	suffix := expected_sub_suffix[r.values.name]
-	some st in oidc_statements(r)
+	some st in github_statements(r)
 	some sub in claim_values(st, sub_key)
 	not regex.match(sprintf("^repo:[^/*?:]+/[^/*?:]+%s$", [suffix]), sub)
 	msg := sprintf(
@@ -143,7 +143,7 @@ deny contains msg if {
 deny contains msg if {
 	some r in iam_roles
 	github_oidc_role(r)
-	some st in oidc_statements(r)
+	some st in github_statements(r)
 	claim_values(st, aud_key) != {"sts.amazonaws.com"}
 	msg := sprintf(
 		"SECURITE: le role '%s' doit exiger aud = 'sts.amazonaws.com' exactement (trouve : %v)",
@@ -158,7 +158,7 @@ deny contains msg if {
 wildcard_principal(st) if st.Principal == "*"
 
 wildcard_principal(st) if {
-	some _, p in st.Principal
+	some p in st.Principal
 	"*" in as_array(p)
 }
 
@@ -184,7 +184,7 @@ deny contains msg if {
 	expected := data.expected_repo
 	some r in iam_roles
 	github_oidc_role(r)
-	some st in oidc_statements(r)
+	some st in github_statements(r)
 	some sub in claim_values(st, sub_key)
 	not startswith(sub, sprintf("repo:%s:", [expected]))
 	msg := sprintf(
