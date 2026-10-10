@@ -309,3 +309,24 @@ test_sub_avec_string_like_refuse if {
 test_sub_avec_string_equals_accepte if {
 	not has_msg(deny, "utiliser StringEquals") with input as state([good_plan, good_apply])
 }
+
+# --- Sub « immuable » : repo:ORG@ID/REPO@ID (use_immutable_subject) ---------
+
+immutable_plan := role("gha-terraform-plan", trust(federated, "repo:acme@111/infra@222:pull_request", "sts.amazonaws.com"))
+
+immutable_apply := role("gha-terraform-apply", trust(federated, "repo:acme@111/infra@222:environment:production", "sts.amazonaws.com"))
+
+test_sub_immuable_conforme_aucune_violation if {
+	count(deny) == 0 with input as state([immutable_plan, immutable_apply])
+}
+
+test_sub_immuable_depot_attendu_identique_accepte if {
+	count(deny) == 0 with input as state([immutable_plan, immutable_apply])
+		with data.expected_repo as "acme@111/infra@222"
+}
+
+test_sub_classique_refuse_si_depot_attendu_immuable if {
+	# le sub de la trust policy n'est pas celui que GitHub émettra : refus
+	has_msg(deny, "depot different") with input as state([good_plan, good_apply])
+		with data.expected_repo as "acme@111/infra@222"
+}
