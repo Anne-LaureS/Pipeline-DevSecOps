@@ -27,6 +27,10 @@ configuration non conforme**.
 | 💬 Revue | Commentaire automatique sur PR | Le plan est visible avant merge |
 | ✅ Apply | Environment protégé | Approbation manuelle requise |
 
+Résultat sur une pull request réelle (règles EC2, règles OIDC et simulation incluses) :
+
+![Checks GitHub verts sur la PR : qualite et plan réussis, apply ignoré](docs/captures/ci-pr-checks-verts.png)
+
 ---
 
 ## 🔐 Conception IAM — pourquoi ce design

@@ -155,6 +155,12 @@ boundaries ne sont pas modélisés ; la signature du jeton et le
 thumbprint ne sont pas vérifiés. C'est une modélisation de la logique
 AWS, pas AWS.
 
+Exécution dans le pipeline, sur une pull request réelle (job `plan` :
+règles EC2, règles OIDC, trust policies et simulation ; `apply` est
+ignoré hors `main`) :
+
+![Checks de la pull request : qualite et plan réussis, apply ignoré](./captures/ci-pr-checks-verts.png)
+
 > ⚠️ **Limite inchangée** : ces contrôles vérifient le *contenu* des
 > policies. L'enforcement réel par AWS (`AssumeRoleWithWebIdentity`
 > accepté ou refusé selon le jeton) reste non exercé, faute de compte
