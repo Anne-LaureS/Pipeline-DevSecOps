@@ -23,7 +23,7 @@ configuration non conforme**.
 | 🔑 Authentification | OIDC (GitHub ↔ AWS) | Zéro secret statique, jetons temporaires (1h max) |
 | 🧹 Qualité | `terraform fmt`, Gitleaks, Trivy | Contrôles bloquants avant tout `plan` |
 | 📐 Plan | Terraform + LocalStack | Génère et affiche le plan d'infrastructure |
-| 🚦 Policy as Code | Conftest / OPA | Bloque toute ressource non conforme (4 règles) |
+| 🚦 Policy as Code | Conftest / OPA | Bloque toute ressource non conforme (4 règles) et toute trust policy OIDC trop large (5 règles) |
 | 💬 Revue | Commentaire automatique sur PR | Le plan est visible avant merge |
 | ✅ Apply | Environment protégé | Approbation manuelle requise |
 
@@ -66,12 +66,14 @@ Le cœur de ce pipeline n'est pas Terraform, c'est le modèle d'accès qui l'ent
 │   ├── oidc.tf              # Provider OIDC + rôles IAM plan/apply
 │   └── examples/            # Ressources de démo testées contre LocalStack
 ├── policies/
-│   └── securite.rego        # 4 règles de sécurité (Conftest/OPA)
+│   ├── securite.rego        # 4 règles de sécurité sur le plan (Conftest/OPA)
+│   ├── oidc.rego            # 5 règles sur les trust policies OIDC (lues dans le state)
+│   └── oidc_test.rego       # 11 tests unitaires des règles OIDC (hors ligne)
 ├── docs/
 │   ├── tp5-rapport.md        # Rapport complet (livrable principal)
 │   └── captures/             # Preuves visuelles (commentaire de plan, etc.)
 ├── scripts/
-│   └── demo-local.sh         # Démo locale : LocalStack + apply (option : cleanup)
+│   └── demo-local.sh         # Démo locale : LocalStack + apply + contrôles policies (option : cleanup)
 ├── .trivyignore              # Risques acceptés, justifiés et tracés
 ├── docker-compose.yml        # LocalStack pour tester en local
 └── .gitignore
@@ -85,6 +87,21 @@ Le cœur de ce pipeline n'est pas Terraform, c'est le modèle d'accès qui l'ent
 ./scripts/demo-local.sh          # lance LocalStack + apply, affiche les ressources créées
 ./scripts/demo-local.sh cleanup  # détruit tout et arrête LocalStack
 ```
+
+![Démarrage de la démo : LocalStack prêt, terraform init](docs/captures/demo-demarrage.png)
+
+La démo enchaîne quatre temps :
+
+1. création du Security Group et de l'instance EC2 sur LocalStack ;
+2. contrôle conftest de cette configuration (`8 tests, 8 passed`) ;
+3. application de `terraform/oidc.tf` dans un dossier temporaire, puis contrôle des trust
+   policies des deux rôles (`6 tests, 6 passed`) ;
+4. **refus volontaire** : le `sub` du rôle `plan` est élargi à `:*` dans une copie du state,
+   et conftest le bloque (2 violations) — le test négatif décrit dans le rapport, rejoué
+   automatiquement.
+
+> ⚠️ Relancer la démo sans `cleanup` échoue : LocalStack n'implémente pas la modification des
+> options de metadata d'une instance existante (erreur 501).
 
 Utile pour montrer concrètement à quelqu'un que le pipeline crée de vraies ressources
 (Security Group + instance EC2, conformes aux 4 règles de sécurité), sans dépendre de
@@ -106,11 +123,9 @@ terraform show -json tfplan.binary > tfplan.json
 conftest test tfplan.json --policy ../../policies
 ```
 
-Résultat attendu sur la configuration conforme fournie :
+Résultat attendu :
 
-```
-8 tests, 8 passed, 0 warnings, 0 failures, 0 exceptions
-```
+![conftest sur la config EC2 — 8 tests, 8 passed](docs/captures/conftest-ec2-conforme.png)
 
 ---
 
@@ -129,6 +144,58 @@ de refus capturé) puis **positivement** (retour à la conformité →
 
 ---
 
+## 🔑 Les 5 règles sur les trust policies OIDC
+
+Les règles de [`policies/oidc.rego`](policies/oidc.rego) vérifient statiquement le contenu de
+`terraform/oidc.tf`, sans compte AWS :
+
+| # | Règle | Détecte |
+|---|---|---|
+| 1️⃣ | 🚫 Pas de joker dans le `sub` | `repo:<ORG>/<REPO>:*` (n'importe quel contexte du dépôt) |
+| 2️⃣ | 🎯 Dépôt explicite | `sub` absent, ou `repo:*/<REPO>:...` |
+| 3️⃣ | 🔀 Événement attendu par rôle | `plan` ≠ `:pull_request`, ou `apply` ≠ `:ref:refs/heads/main` |
+| 4️⃣ | 🎫 Audience exacte | `aud` différent de `sts.amazonaws.com` |
+| 5️⃣ | 👤 Pas de `Principal "*"` | trust policy ouverte à toute identité |
+
+**Particularité** : ces règles lisent le **state** (`terraform show -json` après un apply sur
+LocalStack) et non le plan. Dans un plan, `assume_role_policy` dépend de l'ARN du provider OIDC,
+qui n'existe pas avant l'apply : le champ est « inconnu » et invisible pour conftest.
+
+### Tester hors ligne (sans LocalStack)
+
+```bash
+conftest verify --policy policies
+```
+
+Résultat attendu :
+
+![conftest verify — 11 tests, 11 passed](docs/captures/oidc-tests-unitaires.png)
+
+### Tester sur un vrai state, avec refus volontaire
+
+```bash
+# LocalStack démarré (docker compose up -d)
+mkdir /tmp/oidc && cp terraform/oidc.tf terraform/examples/provider.tf /tmp/oidc && cd /tmp/oidc
+terraform init
+terraform apply -auto-approve
+terraform show -json > state.json
+
+# Cas conforme : 6 tests, 6 passed
+conftest test state.json --policy <chemin-du-depot>/policies --namespace oidc
+
+# Violation volontaire : sub élargi à ':*' -> 2 violations attendues
+sed -i 's/:pull_request/:*/g' state.json
+conftest test state.json --policy <chemin-du-depot>/policies --namespace oidc
+
+terraform destroy -auto-approve
+```
+
+![Trust policies conformes — 6 tests, 6 passed](docs/captures/oidc-state-conforme.png)
+
+![Refus volontaire du sub en ':*' — 2 violations](docs/captures/oidc-refus-joker.png)
+
+---
+
 ## ⚠️ Limite assumée : pas de compte AWS réel
 
 Ce TP a été réalisé sans compte AWS fourni, et sans en créer un à titre personnel et payant. Le pipeline tourne donc contre LocalStack plutôt que contre un vrai compte :
@@ -138,7 +205,10 @@ Ce TP a été réalisé sans compte AWS fourni, et sans en créer un à titre pe
   vraie pull request GitHub.
 - ⚠️ La logique OIDC (`terraform/oidc.tf`) est écrite et commentée,
   mais **n'a jamais été exercée en conditions réelles** — LocalStack
-  Community n'émule pas l'enforcement IAM.
+  Community n'émule pas l'enforcement IAM. Elle est en revanche
+  **vérifiée statiquement** : les 5 règles de `policies/oidc.rego`
+  contrôlent le contenu des trust policies (voir plus haut). Cela prouve
+  que la condition est bien posée, pas qu'AWS l'applique.
 
 Ce choix, ses conséquences et les risques résiduels qui en découlent
 sont documentés en détail dans la partie 0 et la partie 4 (audit

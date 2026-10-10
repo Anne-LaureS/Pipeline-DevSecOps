@@ -12,6 +12,7 @@
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
+ROOT="$(pwd)"
 
 if [ "${1:-}" = "cleanup" ]; then
   echo "🧹 Nettoyage..."
@@ -62,6 +63,41 @@ else
   echo "ℹ️  AWS CLI non installée — les sorties Terraform ci-dessus suffisent déjà à"
   echo "   prouver que les ressources existent. Installe 'aws-cli' pour un détail"
   echo "   supplémentaire interrogé en direct."
+fi
+
+if command -v conftest >/dev/null 2>&1; then
+  echo ""
+  echo "🛡️  Contrôle des règles de sécurité (conftest) sur la config EC2 :"
+  terraform plan -input=false -out=tfplan.binary >/dev/null
+  terraform show -json tfplan.binary > tfplan.json
+  conftest test tfplan.json --policy "$ROOT/policies"
+
+  echo ""
+  echo "🔑 Partie OIDC : rôles GitHub Actions -> AWS (trust policies)"
+  OIDC_DIR="$(mktemp -d)"
+  trap 'rm -rf "$OIDC_DIR"' EXIT
+  cp "$ROOT/terraform/oidc.tf" "$ROOT/terraform/examples/provider.tf" "$OIDC_DIR/"
+  (
+    cd "$OIDC_DIR"
+    terraform init -input=false >/dev/null
+    terraform apply -input=false -auto-approve >/dev/null
+    terraform show -json > state.json
+
+    echo ""
+    echo "✅ Trust policies conformes (sub strict, aud exact, pas de Principal *) :"
+    conftest test state.json --policy "$ROOT/policies" --namespace oidc
+
+    echo ""
+    echo "🚨 Refus volontaire : on remplace ':pull_request' par ':*' (le cas du test négatif)"
+    sed 's/:pull_request/:*/g' state.json > state_bad.json
+    conftest test state_bad.json --policy "$ROOT/policies" --namespace oidc || \
+      echo "👉 Refus attendu : une trust policy trop large est bloquée avant d'atteindre AWS."
+
+    terraform destroy -input=false -auto-approve >/dev/null
+  )
+else
+  echo ""
+  echo "ℹ️  conftest non installé — le contrôle des règles et la démo OIDC sont ignorés."
 fi
 
 echo ""
