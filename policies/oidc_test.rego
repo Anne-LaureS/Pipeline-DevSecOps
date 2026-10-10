@@ -330,3 +330,25 @@ test_sub_classique_refuse_si_depot_attendu_immuable if {
 	has_msg(deny, "depot different") with input as state([good_plan, good_apply])
 		with data.expected_repo as "acme@111/infra@222"
 }
+
+# --- Règle 11 : étiquetage conditionné ---------------------------------
+
+test_create_tags_sans_condition_refuse if {
+	st := {"Effect": "Allow", "Action": ["ec2:CreateTags"], "Resource": "arn:aws:ec2:eu-west-3:*:*"}
+	has_msg(deny, "etiquetage doit etre borne") with input as state(apply_with("p", [st]))
+}
+
+test_delete_tags_sans_condition_refuse if {
+	st := {"Effect": "Allow", "Action": ["ec2:DeleteTags"], "Resource": "arn:aws:ec2:eu-west-3:*:*"}
+	has_msg(deny, "etiquetage doit etre borne") with input as state(apply_with("p", [st]))
+}
+
+test_create_tags_avec_condition_accepte if {
+	st := {
+		"Effect": "Allow",
+		"Action": ["ec2:CreateTags"],
+		"Resource": "arn:aws:ec2:eu-west-3:*:*",
+		"Condition": {"StringEquals": {"ec2:CreateAction": ["RunInstances"]}},
+	}
+	not has_msg(deny, "etiquetage doit etre borne") with input as state(apply_with("p", [st]))
+}

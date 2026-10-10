@@ -352,3 +352,22 @@ deny contains msg if {
 		[r.address],
 	)
 }
+
+# Règle 11 — l'étiquetage est un levier de périmètre : conditionné, jamais nu
+# Les écritures du rôle apply sont limitées aux ressources étiquetées
+# ManagedBy=terraform ; si CreateTags / DeleteTags pouvaient s'exercer sans
+# condition, un job pourrait étiqueter n'importe quelle ressource pour l'y inclure.
+tagging_actions := {"ec2:createtags", "ec2:deletetags"}
+
+deny contains msg if {
+	some d in attached_documents
+	some st in doc_statements(d)
+	st.Effect == "Allow"
+	some a in as_array(st.Action)
+	lower(a) in tagging_actions
+	object.get(st, "Condition", {}) == {}
+	msg := sprintf(
+		"SECURITE: la policy '%s' (role %s) autorise '%s' sans condition : l'etiquetage doit etre borne",
+		[d.name, d.role, a],
+	)
+}

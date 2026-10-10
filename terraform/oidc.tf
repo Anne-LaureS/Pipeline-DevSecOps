@@ -228,9 +228,30 @@ data "aws_iam_policy_document" "apply_write" {
     actions = [
       "ec2:RunInstances",
       "ec2:CreateSecurityGroup",
-      "ec2:CreateTags",
     ]
     resources = ["arn:aws:ec2:${var.aws_region}:*:*"]
+  }
+
+  # Étiquetage à la création : uniquement pendant RunInstances / CreateSecurityGroup
+  # et uniquement avec ManagedBy=terraform. Un job apply ne peut donc pas
+  # « marquer » une ressource existante pour l'inclure dans son périmètre.
+  statement {
+    sid       = "TagAtCreation"
+    effect    = "Allow"
+    actions   = ["ec2:CreateTags"]
+    resources = ["arn:aws:ec2:${var.aws_region}:*:*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "ec2:CreateAction"
+      values   = ["RunInstances", "CreateSecurityGroup"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestTag/ManagedBy"
+      values   = ["terraform"]
+    }
   }
 
   statement {
@@ -250,6 +271,7 @@ data "aws_iam_policy_document" "apply_write" {
       "ec2:ModifySecurityGroupRules",
       "ec2:UpdateSecurityGroupRuleDescriptionsIngress",
       "ec2:UpdateSecurityGroupRuleDescriptionsEgress",
+      "ec2:CreateTags", # mise à jour des étiquettes d'une ressource DÉJÀ gérée
       "ec2:DeleteTags",
     ]
     resources = ["arn:aws:ec2:${var.aws_region}:*:*"]
