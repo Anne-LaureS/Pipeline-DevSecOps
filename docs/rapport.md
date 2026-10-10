@@ -1,5 +1,26 @@
 # 🛡️ Pipeline DevSecOps de bout en bout — Rapport
 
+<a id="glossaire"></a>
+## 📖 Glossaire
+
+Les termes utilisés dans ce rapport et dans le [README](../README.md).
+
+| Terme | En clair |
+|---|---|
+| **OIDC (OpenID Connect)** | **Protocole d'authentification**, couche d'identité construite sur OAuth 2.0 : un **fournisseur d'identité** émet des **jetons signés** (JWT) décrivant une identité, que d'autres services (les *relying parties*) acceptent ou refusent. Ici, GitHub est le fournisseur d'identité et AWS la *relying party*. |
+| **Fédération GitHub → AWS** | Un job demande à GitHub un jeton décrivant ce job (dépôt, branche, événement, environment…) — il lui faut la permission `id-token: write` — puis l'échange auprès d'**AWS STS** (`AssumeRoleWithWebIdentity`) contre des credentials temporaires. AWS vérifie la signature avec les clés publiques publiées par GitHub, puis applique la trust policy du rôle. La confiance est posée **à l'avance**, en déclarant GitHub comme fournisseur OIDC dans IAM ; aucune clé d'accès n'est échangée. |
+| **Jeton (JWT) et claims** | Le jeton est un document signé dont les champs, les *claims*, portent l'émetteur (`iss`), l'audience (`aud`), le sujet (`sub`) et une expiration courte. |
+| **Rôle IAM** | Identité AWS **sans identifiants permanents**, définie par deux éléments : une *trust policy* (qui peut l'assumer) et des *policies de permissions* (ce qu'elle peut faire). Une identité autorisée l'**assume** via AWS STS et reçoit des credentials temporaires (clé d'accès, secret, session token) limités aux permissions du rôle, y compris une identité fédérée comme un job GitHub, qui n'a aucun compte IAM. |
+| **Trust policy** | La policy attachée à un rôle qui dit **qui peut l'assumer**, sous quelles conditions sur les claims du jeton. Elle ne donne **aucune permission** : celles-ci viennent des autres policies du rôle. |
+| **Claim `sub`** | Le claim qui dit *qui* demande : dépôt + contexte, ex. `repo:ORG/REPO:pull_request`. Les conditions de la trust policy (`StringEquals`, `StringLike`) le comparent à un motif. |
+| **Claim `aud`** | L'audience visée par le jeton. Pour AWS STS, elle doit valoir `sts.amazonaws.com`. |
+| **`plan` / `apply`** | `terraform plan` montre ce qui va changer (lecture) ; `terraform apply` le fait (écriture). |
+| **State** | Le fichier où Terraform note ce qu'il a réellement créé. |
+| **Policy as code (Rego / OPA / Conftest)** | Des règles de conformité écrites en code (Rego), évaluées par OPA via l'outil Conftest, qui refusent une configuration fautive. |
+| **LocalStack** | Un émulateur local de l'API AWS (via Docker). Gratuit, sans compte, mais il n'applique pas les contrôles de sécurité IAM. |
+
+---
+
 <a id="partie-0"></a>
 ## 📝 0. Note méthodologique — pourquoi LocalStack
 
@@ -236,6 +257,27 @@ Chaque violation a été testée isolément (une seule règle cassée à la
 fois, les 3 autres restant conformes), ce qui confirme que
 `policies/securite.rego` détecte chaque cas indépendamment et ne
 masque pas les violations les unes derrière les autres.
+
+### Couverture étendue après revue
+
+Une relecture critique de `securite.rego` a montré, par des plans
+fabriqués, que ces quatre règles laissaient passer des cas réels. Chacun
+est maintenant détecté et a un test unitaire négatif
+(`policies/securite_test.rego`) :
+
+| Trou constaté | Pourquoi il passait | Correction |
+|---|---|---|
+| SSH avec `protocol = "-1"` sur `0.0.0.0/0` | avec `-1`, `from_port` et `to_port` valent 0 : la condition `to_port >= 22` échouait | « tout le trafic » est traité comme SSH exposé |
+| `::/0` (IPv6) | seul `cidr_blocks` était lu | `ipv6_cidr_blocks`, `cidr_ipv4`, `cidr_ipv6` lus aussi |
+| `aws_vpc_security_group_ingress_rule` | type de ressource non couvert | ajouté |
+| `http_tokens` omis (calculé à l'apply) | valeur absente du plan : la comparaison ne se déclenchait pas | absent ou inconnu = refus |
+| `encrypted` omis ; instance **sans** `root_block_device` | idem | absent ou inconnu = refus ; bloc manquant = refus |
+
+Principe retenu : **ce qui n'est pas vérifiable est refusé**. Avant cette
+correction, le contrôle donnait une assurance qu'il n'avait pas ; le
+fait que la règle SSH annonçait bloquer « tout accès public » n'était
+pas vrai pour le cas le plus large.
+
 
 ---
 
