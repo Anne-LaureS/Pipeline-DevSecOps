@@ -19,7 +19,9 @@ compte. Conséquences assumées, à lire en regard de la partie D :
   politiques IAM (permissions "à blanc" au niveau du moteur), donc le
   test négatif de la partie A (élargir `sub` à `repo:*` et constater
   l'impact) a été traité comme une analyse écrite plutôt que comme une
-  démonstration live.
+  démonstration live. Il est depuis complété par un contrôle **statique**
+  automatisé (voir la partie 1, « Vérification automatisée ») : cela
+  prouve que la condition est correctement posée, pas qu'AWS l'applique.
 - ✅ En revanche, tout ce qui ne dépend pas d'IAM réel — `terraform
   fmt`, `gitleaks`, `trivy config`, le `terraform plan` généré, et
   surtout **`conftest` qui bloque bien sur les 4 règles de policy** —
@@ -81,6 +83,45 @@ values = ["repo:<ORG>/<REPO>:pull_request"]
 branche `main` exigeant une review avant merge, empêchant qu'un
 contributeur modifie seul les workflows qui tournent sur main.
 
+### 🤖 Vérification automatisée des trust policies
+
+Le test négatif ci-dessus n'est plus seulement décrit : il est rejoué
+par des règles Rego (`policies/oidc.rego`, 11 tests unitaires dans
+`policies/oidc_test.rego`) qui contrôlent le contenu des trust
+policies **sans compte AWS** :
+
+| # | Règle | Détecte |
+|---|---|---|
+| 1 | Pas de joker dans le `sub` | `repo:<ORG>/<REPO>:*` |
+| 2 | Dépôt explicite | `sub` absent, ou `repo:*/<REPO>:...` |
+| 3 | Événement attendu par rôle | `plan` ≠ `:pull_request`, `apply` ≠ `:ref:refs/heads/main` |
+| 4 | Audience exacte | `aud` ≠ `sts.amazonaws.com` |
+| 5 | Pas de `Principal "*"` | trust policy ouverte à toute identité |
+
+Particularité : ces règles lisent le **state** (`terraform show -json`
+après un apply contre LocalStack) et non le plan, car
+`assume_role_policy` y est inconnu avant l'apply (il dépend de l'ARN du
+provider OIDC). Le job `plan` du pipeline les exécute à chaque pull
+request, et `scripts/demo-local.sh` les rejoue en direct, y compris le
+refus volontaire du `sub` en `:*`.
+
+Tests unitaires (hors ligne) :
+
+![conftest verify — 11 tests, 11 passed](./captures/oidc-tests-unitaires.png)
+
+Trust policies conformes sur un vrai state :
+
+![Trust policies conformes — 6 tests, 6 passed](./captures/oidc-state-conforme.png)
+
+Refus volontaire du `sub` élargi à `:*` (2 violations) :
+
+![Refus du sub avec joker — 2 violations](./captures/oidc-refus-joker.png)
+
+> ⚠️ **Limite inchangée** : ces contrôles vérifient le *contenu* des
+> policies. L'enforcement réel par AWS (`AssumeRoleWithWebIdentity`
+> accepté ou refusé selon le jeton) reste non exercé, faute de compte
+> AWS.
+
 ---
 
 ## 📸 2. Capture du commentaire de plan sur une pull request
@@ -119,7 +160,7 @@ masque pas les violations les unes derrière les autres.
 
 | # | Risque OWASP CI/CD | Présent ? | Contrôle en place | Risque résiduel / à faire |
 |---|---|---|---|---|
-| CICD-SEC-1 | Contrôle d'accès pipeline insuffisant | 🟡 Partiellement | `environment: production` avec reviewers obligatoires sur `apply` ; branche `main` protégée ; rôles OIDC plan/apply écrits avec conditions `sub` distinctes | Faute de compte AWS fourni, l'enforcement IAM réel (OIDC + trust policy) n'a **jamais été exécuté en conditions réelles**, seulement contre LocalStack qui ne simule pas la validation des permissions — **risque résiduel assumé, priorité haute si migration vers un vrai compte** |
+| CICD-SEC-1 | Contrôle d'accès pipeline insuffisant | 🟡 Partiellement | `environment: production` avec reviewers obligatoires sur `apply` ; branche `main` protégée ; rôles OIDC plan/apply écrits avec conditions `sub` distinctes, contrôlés statiquement par `policies/oidc.rego` | Faute de compte AWS fourni, l'enforcement IAM réel (OIDC + trust policy) n'a **jamais été exécuté en conditions réelles**, seulement contre LocalStack qui ne simule pas la validation des permissions — **risque résiduel assumé, priorité haute si migration vers un vrai compte** |
 | CICD-SEC-2 | Injection de code dans le pipeline | 🟢 Non | Toutes les actions épinglées par SHA de 40 caractères (pas de tag mutable) ; pas de `pull_request_target` utilisé | Un `github-script` avec du contenu de PR non filtré (ex : titre de PR injecté brut) resterait un vecteur si on l'ajoutait sans échappement — à surveiller si le pipeline évolue |
 | CICD-SEC-3 | Dépendances tierces non sécurisées | 🟡 Partiellement | `trivy config` scanne l'IaC ; actions pinnées par SHA | Aucun scan des dépendances applicatives (SCA) type `trivy fs` / Dependabot n'est branché dans ce pipeline — **risque résiduel assumé** |
 | CICD-SEC-4 | Politique de flux PBAC/CI/CD faible | 🟡 Partiellement | Séparation stricte plan (lecture) / apply (écriture) via deux rôles OIDC distincts | Le rôle `apply` utilise encore `resources = ["*"]` sur certaines actions (ex : `ec2:*`) faute de temps pour scoper précisément par ARN/tag — **risque résiduel assumé** |
