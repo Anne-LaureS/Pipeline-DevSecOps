@@ -284,7 +284,7 @@ terraform show -json > state.json
 
 # Dépôt attendu fourni séparément (valeur par défaut de oidc.tf) : active la règle 5 bis,
 # comme dans la démo et dans le CI
-mkdir expected && echo '{"expected_repo":"VOTRE_ORG/VOTRE_REPO"}' > expected/expected.json
+mkdir expected && echo '{"expected_repo":"Anne-LaureS@113637671/Pipeline-DevSecOps@1317703315"}' > expected/expected.json
 
 # Cas conforme
 conftest test state.json --policy "$REPO/policies" --namespace oidc --data expected
@@ -413,7 +413,7 @@ aws --endpoint-url=http://localhost:4566 sts assume-role-with-web-identity \
 # -> credentials renvoyés, alors qu'AWS refuserait
 
 # Variantes : remplacer le jeton par l'un de ces JSON (même résultat : accepté)
-#   {"aud":"autre.example.com","sub":"repo:VOTRE_ORG/VOTRE_REPO:pull_request"}   # mauvaise audience
+#   {"aud":"autre.example.com","sub":"repo:Anne-LaureS@113637671/Pipeline-DevSecOps@1317703315:pull_request"}   # mauvaise audience
 #   {"aud":"sts.amazonaws.com"}                                                  # sans sub, vers gha-terraform-apply
 ```
 </details>
@@ -487,7 +487,7 @@ ajoutée pour que cela ne puisse plus passer inaperçu.
 
 ```bash
 docker compose --profile openbao up -d openbao      # OpenBao en mode dev, local uniquement
-EXPECTED_REPO="VOTRE_ORG/VOTRE_REPO" scripts/openbao-oidc-check.sh state.json --local
+EXPECTED_REPO="Anne-LaureS@113637671/Pipeline-DevSecOps@1317703315" scripts/openbao-oidc-check.sh state.json --local
 docker compose --profile openbao down
 ```
 
@@ -528,8 +528,9 @@ Risques résiduels connus :
   `ManagedBy=terraform` pour l'inclure dans son périmètre.
 - Tout service ajouté (S3, RDS, IAM...) doit l'être avec ses actions nommées et ses ARN, pas en
   joker : les règles 6 à 10 le vérifient.
-- Les variables `github_org` / `github_repo` valent encore `VOTRE_ORG` / `VOTRE_REPO` : à renseigner
-  avant tout vrai déploiement.
+- Les variables `github_org`, `github_repo` et leurs identifiants numériques ont pour valeurs par
+  défaut celles de **ce** dépôt. Pour un fork, les remplacer (`-var github_org=...`) : le `sub` de la
+  trust policy doit être celui du jeton, sinon AWS refuse les jobs.
 
 Ces choix et les risques qui en découlent sont détaillés dans la
 [partie 0](docs/rapport.md#partie-0) et l'[audit OWASP de la partie 4](docs/rapport.md#partie-4) du
