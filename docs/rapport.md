@@ -109,9 +109,15 @@ values = ["repo:<ORG>/<REPO>:pull_request"]
 
 **✅ Remédiation appliquée :** condition restaurée à `pull_request` /
 `environment:production` (cf. fichier Terraform final), + protection de
-branche `main` exigeant une review avant merge et environment
-`production` limité à `main` avec reviewers obligatoires, empêchant
-qu'un contributeur modifie seul les workflows qui déploient.
+la branche `main` (ruleset `protect-main` : pull request obligatoire,
+checks `qualite` et `plan` requis, branche à jour avant merge) et
+environment `production` limité à `main` avec reviewer obligatoire,
+empêchant qu'un changement de workflow atteigne `main` sans passer par
+une PR et ses contrôles, ni se déployer sans approbation. **Limite
+assumée** : le ruleset n'exige aucune approbation de PR (dépôt à un
+seul mainteneur, qui ne peut pas approuver sa propre PR) ; la garantie
+repose donc sur les checks automatiques et sur l'approbation du
+déploiement, pas sur la relecture d'un tiers.
 
 <a id="evolution-sub-apply"></a>
 ### 🔄 Évolution de conception : le `sub` du rôle apply
@@ -133,13 +139,14 @@ l'ancien `sub`. Prérequis côté GitHub : reviewers obligatoires et
 Le test négatif ci-dessus n'est plus seulement décrit : il est rejoué
 par des règles Rego (`policies/oidc.rego`, tests unitaires dans
 `policies/oidc_test.rego`) qui contrôlent le contenu des trust
-policies (règles 1 à 5) et des permissions (règles 6 à 10) des rôles,
+policies (règles 1 à 5, dont 2 bis et 5 bis) et des permissions (règles 6 à 10) des rôles,
 **sans compte AWS** :
 
 | # | Règle | Détecte |
 |---|---|---|
 | 1 | Pas de joker dans le `sub` | `repo:<ORG>/<REPO>:*` |
 | 2 | Dépôt explicite | `sub` absent, ou `repo:*/<REPO>:...` |
+| 2 bis | `sub` comparé en `StringEquals` | `StringLike` (ou tout opérateur à motif) sur le `sub` : un `*` futur élargirait la confiance en silence |
 | 3 | Contexte attendu par rôle | `plan` ≠ `:pull_request`, `apply` ≠ `:environment:production` |
 | 4 | Audience exacte | `aud` ≠ `sts.amazonaws.com` |
 | 5 | Pas de `Principal "*"` | trust policy ouverte à toute identité |
@@ -293,13 +300,13 @@ pas vrai pour le cas le plus large.
 
 | # | Risque OWASP CI/CD | Présent ? | Contrôle en place | Risque résiduel / à faire |
 |---|---|---|---|---|
-| CICD-SEC-1 | Contrôle d'accès pipeline insuffisant | 🟡 Partiellement | `environment: production` avec reviewers obligatoires sur `apply` ; branche `main` protégée ; rôles OIDC plan/apply écrits avec conditions `sub` distinctes, contrôlés statiquement par `policies/oidc.rego` | Faute de compte AWS, l'enforcement IAM réel (OIDC + trust policy) n'a **jamais été exécuté en conditions réelles**, seulement contre LocalStack qui ne simule pas la validation des permissions — **risque résiduel assumé, priorité haute si migration vers un vrai compte** |
+| CICD-SEC-1 | Contrôle d'accès pipeline insuffisant | 🟡 Partiellement | `environment: production` avec reviewers obligatoires sur `apply` ; branche `main` protégée (ruleset `protect-main` : pull request obligatoire, checks `qualite` et `plan` requis, branche à jour avant merge, suppression et force push interdits) ; rôles OIDC plan/apply écrits avec conditions `sub` distinctes, contrôlés statiquement par `policies/oidc.rego` | Faute de compte AWS, l'enforcement IAM réel (OIDC + trust policy) n'a **jamais été exécuté en conditions réelles**, seulement contre LocalStack qui ne simule pas la validation des permissions — **risque résiduel assumé, priorité haute si migration vers un vrai compte** |
 | CICD-SEC-2 | Injection de code dans le pipeline | 🟢 Non | Toutes les actions épinglées par SHA de 40 caractères (pas de tag mutable) ; pas de `pull_request_target` utilisé | Un `github-script` avec du contenu de PR non filtré (ex : titre de PR injecté brut) resterait un vecteur si on l'ajoutait sans échappement — à surveiller si le pipeline évolue |
 | CICD-SEC-3 | Dépendances tierces non sécurisées | 🟡 Partiellement | `trivy config` scanne l'IaC ; actions pinnées par SHA ; binaire Conftest téléchargé avec empreinte SHA-256 épinglée et vérifiée avant installation | Aucun scan des dépendances applicatives (SCA) type `trivy fs` / Dependabot n'est branché dans ce pipeline — **risque résiduel assumé** |
 | CICD-SEC-4 | Politique de flux PBAC/CI/CD faible | 🟡 Partiellement | Séparation stricte plan (lecture) / apply (écriture) via deux rôles OIDC distincts | Permissions limitées à EC2 et à une région ; écritures nommées une à une, scopées par ARN et par tag `ManagedBy=terraform`. Reste `ec2:Describe*` sur `*` (non scopable par ARN). **Jamais testées sur un vrai compte** : à valider avec IAM Access Analyzer — **risque résiduel assumé** |
 | CICD-SEC-5 | Configuration de build insuffisamment sécurisée | 🟢 Non | `permissions: {}` par défaut au niveau workflow, chaque job déclare le strict nécessaire | — |
 | CICD-SEC-6 | Nettoyage insuffisant du système hébergeant le build | ⚪ Non applicable directement | Runners GitHub-hosted, éphémères par nature (VM détruite après chaque job) | On ne maîtrise pas la preuve de destruction ; on fait confiance à GitHub. Pour un contexte plus sensible, des self-hosted runners avec durcissement explicite seraient préférables |
-| CICD-SEC-7 | Accès non contrôlé aux systèmes de gestion de configuration (SCM) | 🟡 Partiellement | Protection de branche `main`, review obligatoire | Pas d'exigence de commits signés (GPG/Sigstore) ni de règle "linear history" — **risque résiduel assumé** |
+| CICD-SEC-7 | Accès non contrôlé aux systèmes de gestion de configuration (SCM) | 🟡 Partiellement | Ruleset `protect-main` : pull request obligatoire, checks `qualite` et `plan` requis, branche à jour avant merge, suppression et force push interdits | **Aucune relecture par un tiers** (0 approbation requise : dépôt à un seul mainteneur).  Pas d'exigence de commits signés (GPG/Sigstore) ni de règle "linear history" — **risque résiduel assumé** |
 | CICD-SEC-8 | Environnement CI/CD mal configuré | 🟡 Partiellement | `concurrency` sans `cancel-in-progress` pour éviter les states corrompus ; secrets gérés uniquement via OIDC (aucun secret statique stocké) | Le nom exact des rôles IAM et l'ARN de compte apparaissent en clair dans le workflow (`ACCOUNT_ID`) — pas un secret en soi mais de la reconnaissance facilitée si le repo devient public |
 | CICD-SEC-9 | Exposition de secrets | 🟢 Non | Aucun secret AWS statique : uniquement OIDC + STS ; gitleaks bloquant sur chaque run | Gitleaks ne couvre que le contenu versionné, pas les logs de run (une variable mal loggée dans un `run:` resterait visible dans les logs Actions) — **risque résiduel assumé** |
 | CICD-SEC-10 | Journalisation et visibilité insuffisantes du pipeline | 🟡 Partiellement | Logs Actions natifs conservés par GitHub ; commentaire de plan traçable sur chaque PR | Aucune centralisation externe des logs (SIEM), aucune alerte automatique en cas d'échec bloquant répété — à ajouter pour un contexte de production réel |
@@ -358,3 +365,9 @@ est réellement appliqué n'est *techniquement pas* garanti identique à
 ce qui a été montré en commentaire de PR et validé par conftest — une
 médiation "complète" en apparence, mais avec un maillon faible entre
 les deux runs, documenté comme risque résiduel dans le workflow.
+
+**Ce qui renforce la médiation** : le ruleset `protect-main` exige les
+checks `qualite` et `plan` et une branche à jour avant tout merge, et
+interdit le push direct ; la médiation de `plan` (règles EC2, règles
+OIDC, simulation) ne peut donc pas être contournée par un merge dont
+les contrôles seraient rouges, absents ou périmés.
