@@ -6,33 +6,34 @@
 ############################################
 
 variable "github_org" {
-  description = "Organisation ou compte GitHub"
+  description = "Organisation ou compte GitHub (valeur de ce dépôt ; à remplacer pour un fork)"
   type        = string
-  default     = "VOTRE_ORG"
+  default     = "Anne-LaureS"
 }
 
 variable "github_repo" {
-  description = "Nom du dépôt GitHub"
+  description = "Nom du dépôt GitHub (valeur de ce dépôt ; à remplacer pour un fork)"
   type        = string
-  default     = "VOTRE_REPO"
+  default     = "Pipeline-DevSecOps"
 }
 
 variable "github_org_id" {
   description = <<-EOT
-    Identifiant numérique du propriétaire du dépôt. Vide : sub classique
-    (repo:ORG/REPO:...). Renseigné : sub « immuable » (repo:ORG@ID/REPO@ID:...),
+    Identifiant numérique du propriétaire du dépôt (valeur de ce dépôt ; à
+    remplacer pour un fork, ou vide pour le sub classique repo:ORG/REPO:...).
+    Renseigné : sub « immuable » (repo:ORG@ID/REPO@ID:...),
     que GitHub émet par défaut pour les dépôts qui l'activent
     (use_immutable_subject). Le sub de la trust policy doit être CELUI du jeton :
     sinon AWS refuse vos propres jobs.
   EOT
   type        = string
-  default     = ""
+  default     = "113637671"
 }
 
 variable "github_repo_id" {
   description = "Identifiant numérique du dépôt (voir github_org_id)"
   type        = string
-  default     = ""
+  default     = "1317703315"
 }
 
 locals {

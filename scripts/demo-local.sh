@@ -125,7 +125,7 @@ cp "$ROOT/terraform/oidc.tf" "$ROOT/terraform/examples/provider.tf" "$OIDC_DIR/"
   terraform apply -input=false -auto-approve >/dev/null
   terraform show -json > state.json
   # Dépôt attendu fourni séparément (valeur par défaut des variables de oidc.tf)
-  mkdir expected && echo '{"expected_repo":"VOTRE_ORG/VOTRE_REPO"}' > expected/expected.json
+  mkdir expected && echo '{"expected_repo":"Anne-LaureS@113637671/Pipeline-DevSecOps@1317703315"}' > expected/expected.json
 
   echo ""
   echo "✅ Trust policies et permissions (sub strict, aud exact, moindre privilège EC2) :"
