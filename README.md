@@ -268,14 +268,8 @@ Résultat attendu : **93 tests unitaires**, 0 failure.
 
 ![conftest verify — 93 tests, 93 passed](docs/captures/oidc-tests-unitaires.png)
 
-**Qualité du Rego (facultatif).** Un linter indépendant, [Regal](https://github.com/open-policy-agent/regal),
-confirme qu'aucune alerte de type *bug* n'est levée sur les règles. Sa configuration
-([`.regal/config.yaml`](.regal/config.yaml)) désactive quelques règles de style en justifiant chacune
-(par exemple l'interpolation `$"…"`, que le Conftest 0.55 du CI ne comprend pas).
-
-```bash
-regal lint policies
-```
+**Qualité du Rego.** Les règles sont lintées avec [Regal](https://github.com/open-policy-agent/regal)
+(`regal lint policies`, configuration dans [`.regal/config.yaml`](.regal/config.yaml)).
 
 ### 2. Règles EC2 sur un plan
 
