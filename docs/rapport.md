@@ -167,16 +167,16 @@ refus volontaire du `sub` en `:*`.
 
 Tests unitaires (hors ligne) :
 
-![conftest verify — tests unitaires, 0 failures](./captures/oidc-tests-unitaires.png)
+![conftest verify — 87 tests, 87 passed](./captures/oidc-tests-unitaires.png)
 
 Trust policies conformes sur un vrai state (16 contrôles `oidc`, 13 pour la simulation) :
 
-![Trust policies conformes — 0 failures](./captures/oidc-state-conforme.png)
+![Trust policies conformes — 16 tests, 16 passed](./captures/oidc-state-conforme.png)
 
 Refus volontaire : opérateur basculé en `StringLike` et `sub` élargi à `:*` (4 violations : joker,
 `StringLike` sur les deux rôles, suffixe attendu absent) :
 
-![Refus : StringLike et sub élargi](./captures/oidc-refus-joker.png)
+![Refus : StringLike et sub élargi — 4 violations](./captures/oidc-refus-joker.png)
 
 #### Ce que LocalStack n'applique pas
 

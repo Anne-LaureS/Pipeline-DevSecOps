@@ -242,7 +242,7 @@ conftest verify --policy policies
 
 Résultat attendu : **87 tests unitaires**, 0 failure.
 
-![conftest verify — tous les tests unitaires passent](docs/captures/oidc-tests-unitaires.png)
+![conftest verify — 87 tests, 87 passed](docs/captures/oidc-tests-unitaires.png)
 
 ### 2. Règles EC2 sur un plan
 
@@ -287,13 +287,13 @@ terraform destroy -auto-approve && cd "$REPO" && docker compose down
 
 Résultat attendu sur le cas conforme : **16 contrôles** (`oidc`) et **13** (`oidc_sim`), 0 failure.
 
-![Trust policies conformes — 0 failures](docs/captures/oidc-state-conforme.png)
+![Trust policies conformes — 16 tests, 16 passed](docs/captures/oidc-state-conforme.png)
 
 Résultat attendu sur la violation volontaire : **4 violations** (`sub` en `:*`, `StringLike` sur les
 deux rôles, suffixe attendu absent) et 1 pour la simulation (un push sur `main` assumerait le rôle
 `plan`).
 
-![Refus volontaire : StringLike et sub élargi à ':*'](docs/captures/oidc-refus-joker.png)
+![Refus volontaire : StringLike et sub élargi à ':*' — 4 violations](docs/captures/oidc-refus-joker.png)
 
 ---
 
