@@ -36,7 +36,7 @@ Le cœur de ce pipeline n'est pas Terraform, c'est le modèle d'accès qui l'ent
 
 - **Zéro credential permanent** : fédération OIDC GitHub Actions ↔ AWS. Aucune clé d'accès stockée
   en secret GitHub — le job obtient un jeton STS valable 1h maximum, puis rien.
-- **Deux rôles, pas un** : `gha-terraform-plan` (lecture seule, 6 actions `Describe*`/`Get*`) et
+- **Deux rôles, pas un** : `gha-terraform-plan` (lecture seule, 9 actions `Describe*`/`Get*`) et
   `gha-terraform-apply` (écriture) sont des identités IAM distinctes. Une pull request ne peut
   physiquement pas obtenir de droits d'écriture, même si son propre code de workflow était modifié
   dans cette même PR.

@@ -18,10 +18,13 @@ variable "github_repo" {
 }
 
 # --- Fournisseur d'identité OIDC -----------------------------------------
-# Le thumbprint ci-dessous est celui de l'autorité racine utilisée par
-# token.actions.githubusercontent.com au moment de la rédaction. AWS valide
-# aujourd'hui aussi via la chaîne de confiance standard, mais on le garde
-# explicite pour la traçabilité et parce que Terraform l'exige.
+# Le thumbprint ci-dessous est l'empreinte SHA-1 du dernier certificat de la
+# chaîne servie par token.actions.githubusercontent.com (racine ISRG « Root YR »,
+# Let's Encrypt), relevée le 2026-10-10 avec :
+#   openssl s_client -connect token.actions.githubusercontent.com:443 -showcerts
+# AWS valide aujourd'hui aussi via sa chaîne de confiance standard, mais on le
+# garde explicite pour la traçabilité et parce que Terraform l'exige. À
+# recalculer si GitHub change d'autorité.
 resource "aws_iam_openid_connect_provider" "github_actions" {
   url = "https://token.actions.githubusercontent.com"
 
@@ -30,7 +33,7 @@ resource "aws_iam_openid_connect_provider" "github_actions" {
   ]
 
   thumbprint_list = [
-    "6938fd4d98bab03faadb97b34396831e3780aea"
+    "ab9d0263244dd0326eb67015705a667e79cfe998"
   ]
 }
 
