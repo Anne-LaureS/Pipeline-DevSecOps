@@ -124,19 +124,45 @@ test_role_non_oidc_ignore if {
 	count(deny) == 0 with input as state([role("ec2-role", doc)])
 }
 
-# --- Règles 6 à 8 : permissions des rôles ------------------------------
+# --- Règles 6 à 10 : permissions des rôles ----------------------------
+# Les règles examinent les documents RÉELLEMENT attachés à un rôle OIDC
+# GitHub : chaque fixture contient le rôle, la policy et son attachement.
+
+arn_of(name) := sprintf("arn:aws:iam::000000000000:policy/%s", [name])
 
 policy_res(name, stmts) := {
 	"type": "aws_iam_policy",
 	"address": sprintf("aws_iam_policy.%s", [name]),
-	"values": {"name": name, "policy": json.marshal({"Version": "2012-10-17", "Statement": stmts})},
+	"values": {
+		"name": name,
+		"arn": arn_of(name),
+		"policy": json.marshal({"Version": "2012-10-17", "Statement": stmts}),
+	},
 }
 
-read_ec2 := {
-	"Effect": "Allow",
-	"Action": ["ec2:Describe*"],
-	"Resource": "*",
+attachment(role_name, arn) := {
+	"type": "aws_iam_role_policy_attachment",
+	"address": sprintf("aws_iam_role_policy_attachment.%s", [role_name]),
+	"values": {"role": role_name, "policy_arn": arn},
 }
+
+inline_policy(role_name, stmts) := {
+	"type": "aws_iam_role_policy",
+	"address": sprintf("aws_iam_role_policy.%s", [role_name]),
+	"values": {
+		"name": "inline",
+		"role": role_name,
+		"policy": json.marshal({"Version": "2012-10-17", "Statement": stmts}),
+	},
+}
+
+# role + policy + attachement pour le rôle apply
+apply_with(name, stmts) := [good_plan, good_apply, policy_res(name, stmts), attachment("gha-terraform-apply", arn_of(name))]
+
+# role + policy + attachement pour le rôle plan
+plan_with(name, stmts) := [good_plan, good_apply, policy_res(name, stmts), attachment("gha-terraform-plan", arn_of(name))]
+
+read_ec2 := {"Effect": "Allow", "Action": ["ec2:Describe*"], "Resource": "*"}
 
 create_ec2 := {
 	"Effect": "Allow",
@@ -145,42 +171,123 @@ create_ec2 := {
 }
 
 test_permissions_conformes_aucune_violation if {
-	plan := policy_res("gha-terraform-plan-readonly", [read_ec2])
-	apply := policy_res("gha-terraform-apply-write", [read_ec2, create_ec2])
-	count(deny) == 0 with input as state([plan, apply])
+	res := [
+		good_plan, good_apply,
+		policy_res("p-plan", [read_ec2]), attachment("gha-terraform-plan", arn_of("p-plan")),
+		policy_res("p-apply", [read_ec2, create_ec2]), attachment("gha-terraform-apply", arn_of("p-apply")),
+	]
+	count(deny) == 0 with input as state(res)
 }
 
 test_action_joker_de_service_refusee if {
-	bad := policy_res("gha-terraform-apply-write", [{"Effect": "Allow", "Action": ["ec2:*"], "Resource": "arn:aws:ec2:eu-west-3:*:*"}])
-	has_msg(deny, "joker de service entier") with input as state([bad])
+	st := {"Effect": "Allow", "Action": ["ec2:*"], "Resource": "arn:aws:ec2:eu-west-3:*:*"}
+	has_msg(deny, "joker de service entier") with input as state(apply_with("p", [st]))
 }
 
 test_action_etoile_seule_refusee if {
-	bad := policy_res("gha-terraform-apply-write", [{"Effect": "Allow", "Action": "*", "Resource": "arn:aws:ec2:eu-west-3:*:*"}])
-	has_msg(deny, "joker de service entier") with input as state([bad])
+	st := {"Effect": "Allow", "Action": "*", "Resource": "arn:aws:ec2:eu-west-3:*:*"}
+	has_msg(deny, "joker de service entier") with input as state(apply_with("p", [st]))
 }
 
 test_lecture_seule_ne_couvre_pas_s3_getobject if {
-	bad := policy_res("gha-terraform-plan-readonly", [{"Effect": "Allow", "Action": ["s3:Get*"], "Resource": "*"}])
-	has_msg(deny, "s3:getobject") with input as state([bad])
+	st := {"Effect": "Allow", "Action": ["s3:Get*"], "Resource": "*"}
+	has_msg(deny, "s3:getobject") with input as state(plan_with("p", [st]))
 }
 
 test_lecture_seule_ne_couvre_pas_logs_getlogevents if {
-	bad := policy_res("gha-terraform-plan-readonly", [{"Effect": "Allow", "Action": ["logs:Get*"], "Resource": "*"}])
-	has_msg(deny, "logs:getlogevents") with input as state([bad])
+	st := {"Effect": "Allow", "Action": ["logs:Get*"], "Resource": "*"}
+	has_msg(deny, "logs:getlogevents") with input as state(plan_with("p", [st]))
 }
 
 test_lecture_bornee_s3_bucket_acceptee if {
-	ok := policy_res("gha-terraform-plan-readonly", [{"Effect": "Allow", "Action": ["s3:GetBucket*", "s3:ListBucket"], "Resource": "*"}])
-	not has_msg(deny, "lecture de contenu") with input as state([ok])
+	st := {"Effect": "Allow", "Action": ["s3:GetBucket*", "s3:ListBucket"], "Resource": "*"}
+	not has_msg(deny, "lecture de contenu") with input as state(plan_with("p", [st]))
 }
 
 test_ecriture_sur_resource_etoile_refusee if {
-	bad := policy_res("gha-terraform-apply-write", [{"Effect": "Allow", "Action": ["ec2:TerminateInstances"], "Resource": "*"}])
-	has_msg(deny, "sur Resource '*'") with input as state([bad])
+	st := {"Effect": "Allow", "Action": ["ec2:TerminateInstances"], "Resource": "*"}
+	has_msg(deny, "sur Resource '*'") with input as state(apply_with("p", [st]))
 }
 
 test_lecture_sur_resource_etoile_acceptee if {
-	ok := policy_res("gha-terraform-apply-write", [read_ec2])
-	not has_msg(deny, "sur Resource '*'") with input as state([ok])
+	not has_msg(deny, "sur Resource '*'") with input as state(apply_with("p", [read_ec2]))
+}
+
+# --- Contournements corrigés : un test négatif par cas ----------------
+
+test_not_action_refuse if {
+	st := {"Effect": "Allow", "NotAction": ["iam:*"], "Resource": "*"}
+	has_msg(deny, "NotAction") with input as state(apply_with("p", [st]))
+}
+
+test_not_resource_refuse if {
+	st := {"Effect": "Allow", "Action": ["ec2:Describe*"], "NotResource": "arn:aws:ec2:*:*:*"}
+	has_msg(deny, "NotResource") with input as state(apply_with("p", [st]))
+}
+
+test_policy_geree_aws_refusee if {
+	res := [good_plan, good_apply, attachment("gha-terraform-apply", "arn:aws:iam::aws:policy/AdministratorAccess")]
+	has_msg(deny, "non verifiable") with input as state(res)
+}
+
+test_policy_hors_prefixe_est_examinee if {
+	# nom sans rapport avec « gha-terraform- » : seul l'attachement compte
+	st := {"Effect": "Allow", "Action": ["*"], "Resource": "*"}
+	res := [good_plan, good_apply, policy_res("nom-anodin", [st]), attachment("gha-terraform-apply", arn_of("nom-anodin"))]
+	has_msg(deny, "joker de service entier") with input as state(res)
+}
+
+test_policy_inline_est_examinee if {
+	st := {"Effect": "Allow", "Action": ["ec2:*"], "Resource": "*"}
+	res := [good_plan, good_apply, inline_policy("gha-terraform-apply", [st])]
+	has_msg(deny, "joker de service entier") with input as state(res)
+}
+
+test_policy_non_attachee_a_un_role_oidc_est_ignoree if {
+	st := {"Effect": "Allow", "Action": ["*"], "Resource": "*"}
+	res := [good_plan, good_apply, policy_res("orpheline", [st])]
+	count(deny) == 0 with input as state(res)
+}
+
+test_joker_partiel_hors_lecture_refuse if {
+	st := {"Effect": "Allow", "Action": ["ec2:Run*", "ec2:Delete*"], "Resource": "arn:aws:ec2:eu-west-3:*:*"}
+	has_msg(deny, "joker partiel") with input as state(apply_with("p", [st]))
+}
+
+test_joker_partiel_de_lecture_accepte if {
+	st := {"Effect": "Allow", "Action": ["ec2:Describe*", "s3:GetBucket*", "s3:List*"], "Resource": "*"}
+	not has_msg(deny, "joker partiel") with input as state(apply_with("p", [st]))
+}
+
+test_managed_policy_arns_sur_le_role_refuse if {
+	r := object.union(good_apply, {"values": {"name": "gha-terraform-apply", "assume_role_policy": good_apply.values.assume_role_policy, "managed_policy_arns": ["arn:aws:iam::aws:policy/ReadOnlyAccess"]}})
+	has_msg(deny, "managed_policy_arns") with input as state([good_plan, r])
+}
+
+# --- Sub : égalité stricte et dépôt attendu fourni de l'extérieur -----
+
+test_sub_avec_contexte_insere_refuse if {
+	bad := role("gha-terraform-apply", trust(federated, "repo:acme/infra:ref:x:environment:production", "sts.amazonaws.com"))
+	has_msg(deny, ":environment:production") with input as state([good_plan, bad])
+}
+
+test_depot_attendu_different_refuse if {
+	has_msg(deny, "depot different") with input as state([good_plan, good_apply])
+		with data.expected_repo as "autre-org/autre-repo"
+}
+
+test_depot_attendu_identique_accepte if {
+	count(deny) == 0 with input as state([good_plan, good_apply])
+		with data.expected_repo as "acme/infra"
+}
+
+test_aws_iam_policy_attachment_est_examine if {
+	st := {"Effect": "Allow", "Action": ["ec2:*"], "Resource": "*"}
+	att := {
+		"type": "aws_iam_policy_attachment",
+		"address": "aws_iam_policy_attachment.shared",
+		"values": {"name": "shared", "roles": ["gha-terraform-apply"], "policy_arn": arn_of("p")},
+	}
+	res := [good_plan, good_apply, policy_res("p", [st]), att]
+	has_msg(deny, "joker de service entier") with input as state(res)
 }

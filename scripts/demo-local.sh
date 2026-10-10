@@ -82,24 +82,26 @@ if command -v conftest >/dev/null 2>&1; then
     terraform init -input=false >/dev/null
     terraform apply -input=false -auto-approve >/dev/null
     terraform show -json > state.json
+    # Dépôt attendu fourni séparément (valeur par défaut des variables de oidc.tf)
+    mkdir expected && echo '{"expected_repo":"VOTRE_ORG/VOTRE_REPO"}' > expected/expected.json
 
     echo ""
     echo "✅ Trust policies et permissions conformes (sub strict, aud exact, moindre privilège EC2) :"
-    conftest test state.json --policy "$ROOT/policies" --namespace oidc
+    conftest test state.json --policy "$ROOT/policies" --namespace oidc --data expected
 
     echo ""
     echo "🧪 Simulation de la décision AWS (10 jetons fictifs : PR, environment, fork, mauvaise audience...)"
-    conftest test state.json --policy "$ROOT/policies" --namespace oidc_sim
+    conftest test state.json --policy "$ROOT/policies" --namespace oidc_sim --data expected
 
     echo ""
     echo "🚨 Refus volontaire : on remplace ':pull_request' par ':*' (le cas du test négatif)"
     sed 's/:pull_request/:*/g' state.json > state_bad.json
-    conftest test state_bad.json --policy "$ROOT/policies" --namespace oidc || \
+    conftest test state_bad.json --policy "$ROOT/policies" --namespace oidc --data expected || \
       echo "👉 Refus attendu : une trust policy trop large est bloquée avant d'atteindre AWS."
 
     echo ""
     echo "🧪 Même state, vu par la simulation : que pourrait assumer un attaquant ?"
-    conftest test state_bad.json --policy "$ROOT/policies" --namespace oidc_sim || \
+    conftest test state_bad.json --policy "$ROOT/policies" --namespace oidc_sim --data expected || \
       echo "👉 Avec le joker, un job hors pull_request (ex. push sur main) assumerait le rôle plan."
 
     terraform destroy -input=false -auto-approve >/dev/null

@@ -140,11 +140,18 @@ jobs:
           cp terraform/oidc.tf terraform/examples/provider.tf "$WORKDIR/"
           cd "$WORKDIR"
           terraform init -input=false
-          terraform apply -input=false -auto-approve
+          # Le dépôt réel est injecté dans les rôles, et fourni SÉPARÉMENT aux
+          # règles (donnée indépendante du code testé : un mauvais dépôt dans
+          # le sub serait détecté au lieu d'être pris pour référence).
+          terraform apply -input=false -auto-approve \
+            -var "github_org=${GITHUB_REPOSITORY%%/*}" \
+            -var "github_repo=${GITHUB_REPOSITORY#*/}"
           terraform show -json > state.json
-          conftest test state.json --policy "$GITHUB_WORKSPACE/policies" --namespace oidc
+          mkdir expected
+          printf '{"expected_repo":"%s"}' "$GITHUB_REPOSITORY" > expected/expected.json
+          conftest test state.json --policy "$GITHUB_WORKSPACE/policies" --namespace oidc --data expected
           # Simulation de la décision AWS : 10 jetons fictifs contre ces rôles.
-          conftest test state.json --policy "$GITHUB_WORKSPACE/policies" --namespace oidc_sim
+          conftest test state.json --policy "$GITHUB_WORKSPACE/policies" --namespace oidc_sim --data expected
 
       - name: Upload plan artifact (pour le job apply)
         uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4.4.0

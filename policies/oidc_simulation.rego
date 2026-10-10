@@ -138,9 +138,14 @@ token(sub, aud) := {"sub": sub, "aud": aud}
 
 # --- Scénarios attendus ----------------------------------------------
 
-# Le dépôt de référence est lu dans la condition `sub` du rôle apply
-# (repo:<org>/<repo>:...), pour ne pas coder en dur un nom de dépôt.
+# Dépôt de référence. Idéalement fourni de l'extérieur (`--data`, donnée
+# `expected_repo` = <org>/<repo>) : c'est une source INDÉPENDANTE du code testé.
+# À défaut, il est déduit de la condition `sub` du rôle apply, ce qui rend
+# la vérification circulaire (un mauvais dépôt dans le sub passerait).
+repo := data.expected_repo
+
 repo := m[0][1] if {
+	not data.expected_repo
 	some st in statements(roles_by_name["gha-terraform-apply"])
 	some _, conds in st.Condition
 	some v in as_array(conds[sprintf("%s:sub", [issuer])])
