@@ -17,6 +17,8 @@ Les termes utilisés dans ce rapport et dans le [README](../README.md).
 | **`plan` / `apply`** | `terraform plan` montre ce qui va changer (lecture) ; `terraform apply` le fait (écriture). |
 | **State** | Le fichier où Terraform note ce qu'il a réellement créé. |
 | **Policy as code (Rego / OPA / Conftest)** | Des règles de conformité écrites en code (Rego), évaluées par OPA via l'outil Conftest, qui refusent une configuration fautive. |
+| **OpenBao** | Fork open source de HashiCorp Vault. Sa méthode d'authentification `jwt` vérifie la signature d'un jeton OIDC et compare ses claims à des valeurs liées : ici, un second moteur indépendant pour recouper la simulation. |
+| **Sub immuable** | Forme du claim `sub` que GitHub émet pour les dépôts qui l'activent : `repo:ORG@<id>/REPO@<id>:...`, avec les identifiants numériques du propriétaire et du dépôt, insensibles au renommage. |
 | **LocalStack** | Un émulateur local de l'API AWS (via Docker). Gratuit, sans compte, mais il n'applique pas les contrôles de sécurité IAM. |
 
 ---
@@ -174,7 +176,7 @@ refus volontaire du `sub` en `:*`.
 
 Tests unitaires (hors ligne) :
 
-![conftest verify — 87 tests, 87 passed](./captures/oidc-tests-unitaires.png)
+![conftest verify en CI — 90 tests, 90 passed](./captures/oidc-tests-unitaires.png)
 
 Trust policies conformes sur un vrai state (16 contrôles `oidc`, 13 pour la simulation) :
 
@@ -237,6 +239,53 @@ ignoré hors `main`) :
 > AWS.
 
 ---
+
+<a id="second-moteur"></a>
+#### Second moteur : test différentiel avec OpenBao
+
+**Motivation.** La simulation est écrite par la même personne que les règles :
+elle peut partager leurs angles morts. On la recoupe avec OpenBao (méthode
+`jwt`), qui vérifie réellement la signature d'un jeton et compare ses claims.
+Les rôles OpenBao sont construits **depuis le state Terraform** : les valeurs
+testées sont celles de `oidc.tf`, pas une copie. Les mêmes jetons sont évalués
+par OpenBao et par `oidc_simulation.rego` (via `policies/oidc_probe.rego`) ;
+un désaccord signale un défaut dans l'un des deux.
+
+**Deux modes.** `--local` signe les scénarios de la simulation avec une clé de
+test (autre dépôt, `main`, mauvais environment, mauvaise audience). `--github`,
+exécuté dans un job CI dédié (`jetons-reels`, seul à porter `id-token: write`,
+ignoré pour les PR de forks), utilise le **vrai** jeton du job, dont la
+signature est vérifiée via le JWKS de GitHub.
+
+**Ce que le premier run a révélé.** Le job est passé au vert alors que le jeton
+légitime d'une pull request était refusé par les deux moteurs : le `sub` émis
+pour ce dépôt est `repo:Anne-LaureS@113637671/Pipeline-DevSecOps@1317703315:pull_request`
+(`use_immutable_subject`), et non `repo:Anne-LaureS/Pipeline-DevSecOps:pull_request`
+comme le supposait `oidc.tf`. Sur un vrai compte AWS, le rôle `plan` aurait
+refusé les propres PR du dépôt. Deux corrections :
+
+1. `oidc.tf` construit le `sub` comme le jeton (`github_org_id`,
+   `github_repo_id`), ce qui protège aussi d'un renommage ou d'une recréation du
+   dépôt par un tiers ;
+2. le script vérifie une **intention** indépendante des deux moteurs (sur une
+   PR, le jeton légitime est accepté par `plan` et refusé par `apply`), parce
+   que deux moteurs qui refusent tout sont « d'accord ».
+
+Après correction, en CI, avec le vrai jeton de la PR : `plan` ACCEPTÉ et
+`apply` REFUSÉ par les deux moteurs, et tout est refusé avec une audience
+incorrecte. Un test témoin (défaut injecté volontairement dans une copie de la
+simulation) fait échouer le script avec le code 1 et la liste des désaccords.
+
+**Limites, à lire avec le reste :**
+
+- OpenBao compare des **valeurs exactes** ; ce n'est pas la sémantique de
+  `StringLike` d'AWS. Le script n'accepte donc que des conditions
+  `StringEquals`, où les deux sont équivalentes. On valide la logique des
+  claims, pas l'évaluateur d'AWS.
+- Ni OpenBao ni la simulation ne modélisent les `Deny` explicites, les
+  opérateurs de condition autres que `StringEquals`, ni les SCP.
+- La limite « jamais exercé sur un vrai AWS » reste vraie. La formulation
+  exacte devient : **simulé et recoupé par un second moteur**.
 
 <a id="partie-2"></a>
 ## 📸 2. Capture du commentaire de plan sur une pull request
